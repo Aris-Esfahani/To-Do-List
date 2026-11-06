@@ -1,0 +1,6 @@
+# Dependencies and build output (rebuilt with npm install / npm run dist)
+node_modules/
+dist/
+
+# Local editor and tooling state
+.claude/

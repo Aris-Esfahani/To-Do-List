@@ -1,0 +1,4 @@
+# Keep LF line endings everywhere (the files are written that way); binaries untouched
+* text=auto eol=lf
+*.ico binary
+*.png binary

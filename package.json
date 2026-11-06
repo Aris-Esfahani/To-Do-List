@@ -1,0 +1,57 @@
+{
+  "name": "notepad",
+  "productName": "Notepad",
+  "version": "0.1.0",
+  "description": "A minimal, lightweight to-do list that sits on your desktop like a paper notepad, with your Canvas assignments on it.",
+  "author": "Aris Esfahani",
+  "license": "MIT",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "icons": "node scripts/make-icons.js",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.notepad.clipboard",
+    "productName": "Notepad",
+    "files": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "main.js",
+      "preload.js",
+      "canvas.js",
+      "assets/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/koffi/**",
+      "node_modules/@koromix/**"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Notepad"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "@fontsource-variable/caveat": "^5.3.0",
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "koffi": "^3.3.7"
+  }
+}

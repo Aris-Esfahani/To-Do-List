@@ -1,0 +1,40 @@
+# Builds the Windows installer and portable exe and attaches them to a GitHub release
+# whenever a version tag (v0.1.0, v1.2.3, …) is pushed.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run dist
+
+      - name: Publish release with both downloads
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Notepad Setup *.exe
+            dist/Notepad-*-portable.exe
+          generate_release_notes: true
+          body: |
+            Two downloads; you only need one:
+            - **Notepad Setup …exe**: installer (Start menu entry, desktop shortcut, uninstall from Settings → Apps)
+            - **Notepad-…-portable.exe**: single file, runs without installing
+
+            Windows SmartScreen will warn on first run because the app isn't code-signed: click *More info → Run anyway*.

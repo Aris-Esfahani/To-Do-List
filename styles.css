@@ -1,0 +1,1179 @@
+/* Notepad — a top-bound pad with index tabs, floating on a transparent background */
+
+:root {
+  color-scheme: light;
+
+  /* Paper + ink */
+  --paper: #fcfaf4;
+  --paper-back: #efebe1;
+  --paper-under: #e7e1d4;
+  --rule: rgba(88, 124, 166, 0.28);
+  --margin-line: rgba(212, 98, 84, 0.5);
+  --ink: #273046;
+  --ink-soft: #776d60;
+  --pencil: #aaa091;
+  --accent: #c4513a;
+
+  /* Controls, cards, stacked-sheet edges */
+  --field: #fff;
+  --field-border: rgba(60, 45, 20, 0.25);
+  --btn-bg: rgba(39, 48, 70, 0.08);
+  --btn-bg-hover: rgba(39, 48, 70, 0.16);
+  --bar-bg: rgba(252, 250, 244, 0.88);
+  --panel-border: rgba(60, 45, 20, 0.14);
+  --sheet-a: #f7f4ec;
+  --sheet-b: #d8d0c1;
+  --sheet-edge: #b9b0a0;
+  --corner-2: #f1ece2;
+  --corner-3: #fffdf8;
+  --corner-4: #e2dbcd;
+  --tab-dim: saturate(0.82) brightness(0.96);
+  --tab-lit: none;
+
+  /* Writing: set from the settings card (font family, its size relative to the ruled lines,
+     and how much to scale the lines + text together) */
+  --write-font: var(--hand);
+  --write-ratio: 0.82;
+  --text-scale: 1;
+
+  /* Index tabs */
+  --tab-ink: #2b241c;
+  --tab-notes: #f4eddd;
+  --tab-week: #d6bc93;
+  --tab-mon: #e8957a;
+  --tab-tue: #ecc477;
+  --tab-wed: #bccb8f;
+  --tab-thu: #a2c6ba;
+  --tab-fri: #acc2d8;
+  --tab-sat: #cdaecb;
+  --tab-sun: #e6b892;
+
+  --hand: "Caveat Variable", "Caveat", "Segoe Print", cursive;
+  --serif: "Fraunces Variable", "Fraunces", Georgia, serif;
+
+  --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.22 0 0 0 0 0.12 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* Layout: the clipboard is sized to fit the window, leaving room for its shadow and for
+     the tabs that stick out on the left. main.js sizes the desktop window with the same numbers. */
+  --gap-top: 20px;
+  --gap-x: 20px;
+  --gap-bottom: 30px;
+  --ratio: 0.75;
+  --bw: min(700px, calc(100vw - 2 * var(--gap-x) - 70px), calc((100dvh - var(--gap-top) - var(--gap-bottom)) * var(--ratio)));
+  --tab-out: clamp(48px, calc(var(--bw) * 0.105), 70px);
+}
+
+/* Desktop app: the clipboard fills the transparent window, at whatever size it's dragged to */
+.is-desktop {
+  --bw: min(calc(100vw - 2 * var(--gap-x) - 70px), calc((100vh - var(--gap-top) - var(--gap-bottom)) * var(--ratio)));
+}
+
+@media (max-width: 640px) {
+  :root:not(.is-desktop) {
+    --ratio: 0.6;
+  }
+}
+
+/* Dark: app.js sets data-theme to "light" or "dark" (from the Appearance setting, or the
+   system preference when it's set to System) */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #2b2824;
+  --paper-back: #23201d;
+  --paper-under: #1c1a17;
+  --rule: rgba(150, 172, 205, 0.2);
+  --margin-line: rgba(226, 122, 106, 0.5);
+  --ink: #ece5d7;
+  --ink-soft: #a79e90;
+  --pencil: #6e675e;
+  --accent: #e2775f;
+  --field: #1f1d1a;
+  --field-border: rgba(255, 255, 255, 0.18);
+  --btn-bg: rgba(255, 255, 255, 0.1);
+  --btn-bg-hover: rgba(255, 255, 255, 0.2);
+  --bar-bg: rgba(43, 40, 36, 0.92);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --sheet-a: #353129;
+  --sheet-b: #1f1c19;
+  --sheet-edge: #0e0d0c;
+  --corner-2: #3b3732;
+  --corner-3: #4a453f;
+  --corner-4: #2f2c28;
+  --tab-dim: saturate(0.8) brightness(0.68);
+  --tab-lit: brightness(0.84);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+/* No backdrop: only the pad and its tabs are drawn */
+html,
+body {
+  background: transparent;
+}
+
+body {
+  min-height: 100dvh;
+  color: var(--ink);
+  font-family: var(--serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+.is-desktop body {
+  overflow: hidden;
+  user-select: none;
+}
+
+.is-desktop .write {
+  user-select: text;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Scene ---------- */
+
+.scene {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--gap-top) var(--gap-x) var(--gap-bottom);
+  overflow: clip;
+}
+
+.clipboard {
+  position: relative;
+  width: var(--bw);
+  aspect-ratio: var(--ratio);
+  margin-left: var(--tab-out);
+  container-type: inline-size;
+}
+
+/* ---------- Layout box for the pad, its tabs and the window controls ---------- */
+
+.board {
+  --line: calc(max(24px, 5.1cqw) * var(--text-scale));
+  --margin-x: 9.2cqw;
+  --page-top: max(32px, 5.6cqw);
+
+  /* Window buttons (top-right): size, gap, inset from the corner, and how many there are.
+     The drag strip above the title is measured from these so it never covers them. */
+  --ctl-size: max(20px, 3.2cqw);
+  --ctl-gap: max(5px, 0.9cqw);
+  --ctl-inset: max(8px, 1.6cqw);
+  --ctl-count: 4;
+  --ctl-width: calc(var(--ctl-count) * var(--ctl-size) + (var(--ctl-count) - 1) * var(--ctl-gap) + 2 * var(--ctl-inset));
+
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------- Desktop: grab the notepad anywhere but the writing lines to move it ---------- */
+
+/* The title area is moved by Windows itself (smoothest); the tabs and week rows have to stay
+   clickable, so app.js moves the window from their pointer events instead. */
+.is-desktop:not(.is-pinned) .page-head {
+  -webkit-app-region: drag;
+}
+
+/* The strip above the title is a drag handle too. It's its own element that stops short of
+   the window buttons, because a drag region would otherwise swallow their clicks. */
+.drag-strip {
+  display: none;
+}
+
+.is-desktop:not(.is-pinned) .drag-strip {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  right: calc(var(--ctl-width) + 4px);
+  height: var(--page-top);
+  display: block;
+  -webkit-app-region: drag;
+  cursor: grab;
+}
+
+.is-desktop:not(.is-pinned) :is(.page-head, .tabs, .week) {
+  cursor: grab;
+}
+
+.is-desktop.is-moving,
+.is-desktop.is-moving * {
+  cursor: grabbing !important;
+}
+
+.is-desktop.is-pinned .resize-grip {
+  display: none;
+}
+
+.win-controls,
+.resize-grip {
+  display: none;
+}
+
+/* Minimize + hide, sitting faintly in the page's top-right corner */
+.is-desktop .win-controls {
+  position: absolute;
+  z-index: 45;
+  top: var(--ctl-inset);
+  right: var(--ctl-inset);
+  display: flex;
+  gap: var(--ctl-gap);
+  opacity: 0.45;
+  transition: opacity 0.2s;
+}
+
+.is-desktop .win-controls:hover,
+.is-desktop .win-controls:focus-within {
+  opacity: 1;
+}
+
+.win-btn {
+  display: grid;
+  place-items: center;
+  width: var(--ctl-size);
+  height: var(--ctl-size);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--btn-bg);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.win-btn svg {
+  width: 55%;
+  height: 55%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.win-btn:hover {
+  background: var(--btn-bg-hover);
+}
+
+.win-btn--settings svg {
+  width: 66%;
+  height: 66%;
+  stroke-width: 1.3;
+}
+
+.win-btn--close:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.win-btn--pin svg {
+  width: 62%;
+  height: 62%;
+  transform: rotate(35deg);
+  transition: transform 0.2s;
+}
+
+/* Pinned: the pin stands upright and the button stays lit */
+.is-pinned .win-btn--pin {
+  background: var(--accent);
+  color: #fff;
+}
+
+.is-pinned .win-btn--pin svg {
+  transform: none;
+}
+
+.is-pinned .win-controls {
+  opacity: 0.7;
+}
+
+.win-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Resize grip just off the pad's bottom-right corner */
+.is-desktop .resize-grip {
+  position: absolute;
+  z-index: 45;
+  right: -16px;
+  bottom: -20px;
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  cursor: nwse-resize;
+  /* three little ridges on a pale backing, so it shows up on light and dark desktops */
+  background-color: var(--bar-bg);
+  background-image:
+    linear-gradient(135deg, transparent 46%, var(--ink) 46% 52%, transparent 52% 62%, var(--ink) 62% 68%, transparent 68% 78%, var(--ink) 78% 84%, transparent 84%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.is-desktop .resize-grip:hover {
+  opacity: 0.9;
+}
+
+/* ---------- Index tabs ---------- */
+
+.tabs {
+  position: absolute;
+  z-index: 2;
+  left: calc(-1 * var(--tab-out));
+  width: calc(var(--tab-out) + 4cqw);
+  top: 11cqw;
+  bottom: 3cqw;
+  display: flex;
+  flex-direction: column;
+  gap: max(4px, 1.2cqw);
+}
+
+.tab {
+  --shift: 10%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  border: 0;
+  padding: 0 0 0 max(9px, 1.7cqw);
+  border-radius: max(6px, 1.3cqw) 0 0 max(6px, 1.3cqw);
+  background-color: var(--tab-color);
+  background-image:
+    var(--noise),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.05));
+  color: var(--tab-ink);
+  font-family: var(--serif);
+  font-size: clamp(11px, 2.25cqw, 15.5px);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  box-shadow:
+    -1px 1px 0 rgba(0, 0, 0, 0.06),
+    -2px 3px 5px -2px rgba(0, 0, 0, 0.35);
+  transform: translateX(var(--shift));
+  filter: var(--tab-dim);
+  transition:
+    transform 0.28s cubic-bezier(0.3, 0.7, 0.3, 1),
+    filter 0.2s,
+    box-shadow 0.28s;
+}
+
+/* A little gap between Notes/Week and the days */
+.tab:nth-child(2) {
+  margin-bottom: max(6px, 2.2cqw);
+}
+
+.tab:hover {
+  --shift: 4%;
+  filter: var(--tab-lit);
+}
+
+.tab.is-active {
+  --shift: 0%;
+  filter: var(--tab-lit);
+  box-shadow:
+    -2px 2px 0 rgba(0, 0, 0, 0.05),
+    -4px 6px 10px -4px rgba(0, 0, 0, 0.5);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tab.is-today .tab-label::after {
+  content: "";
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  margin-left: 0.4em;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 0.12em;
+}
+
+/* ---------- The pad ---------- */
+
+.pad {
+  position: absolute;
+  inset: 0;
+}
+
+.pad-base {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.5cqw;
+  background: var(--paper-under);
+  box-shadow:
+    0 1px 0 var(--sheet-a),
+    0 2px 0 var(--sheet-b),
+    0 3px 0 var(--sheet-a),
+    0 4px 0 var(--sheet-b),
+    0 5px 0 var(--sheet-a),
+    0 6px 0 var(--sheet-b),
+    0 7px 0 var(--sheet-a),
+    0 8px 1px var(--sheet-edge),
+    0 12px 18px -4px rgba(0, 0, 0, 0.55);
+}
+
+/* Shadow cast on the pad while a sheet is lifted */
+.pad-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: 0.5cqw;
+  background: linear-gradient(to bottom, rgba(40, 28, 16, 0.38), rgba(40, 28, 16, 0.12) 55%, rgba(40, 28, 16, 0));
+}
+
+/* ---------- Pages (hinged at the top edge) ---------- */
+
+.page {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 0;
+  transform-style: preserve-3d;
+}
+
+.page.is-flipped {
+  visibility: hidden;
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 0.5cqw;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.face--front {
+  display: flex;
+  flex-direction: column;
+  padding: var(--page-top) 5cqw 4cqw;
+  background-color: var(--paper);
+  background-image: var(--noise);
+  box-shadow: inset 0 0 0 1px rgba(80, 60, 30, 0.06);
+}
+
+.face--back {
+  transform: rotateX(180deg);
+  background-color: var(--paper-back);
+  background-image:
+    var(--noise),
+    repeating-linear-gradient(to bottom, transparent 0 calc(var(--line) - 1px), rgba(88, 124, 166, 0.1) calc(var(--line) - 1px) var(--line));
+}
+
+.face-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(to bottom, rgba(45, 32, 18, 0.05), rgba(45, 32, 18, 0.42));
+}
+
+/* ---------- Page header ---------- */
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1cqw 2cqw;
+  margin: 0 -5cqw;
+  padding: 0 5cqw 1.8cqw;
+  border-bottom: 3px double var(--margin-line);
+}
+
+.page-title {
+  margin: 0;
+  font-size: clamp(24px, 7cqw, 50px);
+  font-style: italic;
+  font-weight: 420;
+  line-height: 1;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+.page-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  margin: 0;
+  padding-bottom: 0.35em;
+  font-size: clamp(10.5px, 2.1cqw, 14px);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.stamp {
+  display: inline-block;
+  padding: 0.3em 0.6em 0.25em;
+  border: 2px solid var(--accent);
+  border-radius: 0.3em;
+  color: var(--accent);
+  font-size: 0.92em;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  transform: rotate(-6deg);
+  opacity: 0.85;
+}
+
+/* ---------- Writing area (ruled lines + red margin) ---------- */
+
+.write {
+  flex: 1;
+  min-height: 0;
+  display: block;
+  width: calc(100% + 10cqw);
+  margin: 0 -5cqw -4cqw;
+  padding: 0 5cqw 4cqw calc(var(--margin-x) + 2.4cqw);
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  resize: none;
+  font-family: var(--write-font);
+  font-size: calc(var(--line) * var(--write-ratio));
+  line-height: var(--line);
+  color: var(--ink);
+  caret-color: var(--accent);
+  background-color: transparent;
+  /* Margin line stays put; the ruled lines are one tile per line and scroll with the text */
+  background-image:
+    linear-gradient(90deg, transparent calc(var(--margin-x) - 1.5px), var(--margin-line) calc(var(--margin-x) - 1.5px), var(--margin-line) var(--margin-x), transparent var(--margin-x)),
+    linear-gradient(to bottom, transparent calc(100% - 1px), var(--rule) calc(100% - 1px));
+  background-size: 100% 100%, 100% var(--line);
+  background-repeat: no-repeat, repeat;
+  background-attachment: scroll, local;
+  background-position: 0 0, 0 calc(var(--line) * -0.16);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+.write::placeholder {
+  color: var(--pencil);
+  opacity: 1;
+}
+
+/* ---------- Week overview ---------- */
+
+.week {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: repeat(7, minmax(0, 1fr));
+  margin: 0 -5cqw -4cqw;
+  padding: 0;
+  list-style: none;
+}
+
+.week li {
+  display: flex;
+  min-height: 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.week li:last-child {
+  border-bottom: 0;
+}
+
+.week-day {
+  display: grid;
+  grid-template-columns: 16cqw 1fr;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.week-day:hover {
+  background-color: rgba(214, 160, 80, 0.09);
+}
+
+.week-day:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.week-day.is-today {
+  background-color: rgba(196, 81, 58, 0.045);
+}
+
+.week-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6cqw;
+  border-right: 1.5px solid var(--margin-line);
+}
+
+.wd-name {
+  font-size: clamp(9px, 1.8cqw, 12.5px);
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.wd-num {
+  position: relative;
+  font-size: clamp(18px, 5.2cqw, 36px);
+  font-weight: 380;
+  line-height: 1;
+}
+
+.week-day.is-today .wd-num::after {
+  content: "";
+  position: absolute;
+  inset: -0.26em -0.38em -0.2em;
+  border: 2px solid var(--accent);
+  border-radius: 52% 48% 55% 45% / 50% 56% 44% 50%;
+  transform: rotate(-7deg);
+  opacity: 0.85;
+}
+
+.wd-preview {
+  align-self: center;
+  padding: 0 4cqw 0 3cqw;
+  font-family: var(--write-font);
+  font-size: calc(var(--line) * var(--write-ratio) * 0.9);
+  line-height: 1.15;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* ---------- Dog-ear corner: click to flip to the next page ---------- */
+
+.corner {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  width: max(24px, 5.2cqw);
+  height: max(24px, 5.2cqw);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: linear-gradient(to top left, var(--paper-under) 0 49.5%, rgba(0, 0, 0, 0.14) 50%, var(--corner-2) 52%, var(--corner-3) 70%, var(--corner-4) 100%);
+  box-shadow: -2px -2px 4px -2px rgba(60, 40, 20, 0.18);
+  transition: width 0.2s ease, height 0.2s ease;
+}
+
+.corner:hover {
+  width: max(32px, 7cqw);
+  height: max(32px, 7cqw);
+}
+
+/* ---------- Canvas: toggle at the pad's bottom-left ---------- */
+
+.canvas-bar,
+.card {
+  display: none;
+}
+
+.is-desktop .canvas-bar {
+  position: absolute;
+  z-index: 45;
+  left: 1.4cqw;
+  bottom: 1cqw;
+  display: flex;
+  align-items: center;
+  gap: 0.4cqw;
+  padding: 0.35cqw 0.5cqw 0.35cqw 0.9cqw;
+  border-radius: 999px;
+  background: var(--bar-bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.is-desktop .canvas-bar:hover,
+.is-desktop .canvas-bar:focus-within,
+.is-desktop.canvas-on .canvas-bar {
+  opacity: 1;
+}
+
+.canvas-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  cursor: pointer;
+  font-size: clamp(10px, 1.9cqw, 12.5px);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.canvas-check {
+  width: 1.15em;
+  height: 1.15em;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.canvas-hint {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--accent);
+}
+
+.canvas-hint:empty {
+  display: none;
+}
+
+/* ---------- Cards (settings, Canvas) ---------- */
+
+.is-desktop .card {
+  position: absolute;
+  z-index: 50;
+  left: 7%;
+  right: 7%;
+  top: 10%;
+  max-height: 80%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--panel-border);
+  border-radius: 1cqw;
+  background-color: var(--paper);
+  background-image: var(--noise);
+  box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.15);
+  font-size: clamp(12px, 2.3cqw, 14px);
+  color: var(--ink);
+}
+
+.is-desktop .card[hidden] {
+  display: none;
+}
+
+.cp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.6cqw 2.6cqw 1.2cqw;
+  border-bottom: 3px double var(--margin-line);
+}
+
+.cp-title {
+  margin: 0;
+  font-size: 1.7em;
+  font-style: italic;
+  font-weight: 420;
+  line-height: 1;
+}
+
+.cp-close {
+  width: 2em;
+  height: 2em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--btn-bg);
+  color: var(--ink);
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cp-close:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.cp-body {
+  overflow: auto;
+  padding: 1.8cqw 2.6cqw 2.4cqw;
+  scrollbar-width: thin;
+}
+
+.cp-body p {
+  margin: 0 0 0.9em;
+  line-height: 1.45;
+}
+
+.cp-muted {
+  color: var(--ink-soft);
+}
+
+.cp-error {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cp-error:empty {
+  display: none;
+}
+
+.cp-label {
+  display: block;
+  margin: 0.2em 0 0.35em;
+  font-size: 0.82em;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+  margin-bottom: 1em;
+}
+
+.cp-input {
+  flex: 1 1 12em;
+  min-width: 0;
+  padding: 0.5em 0.7em;
+  border: 1px solid var(--field-border);
+  border-radius: 0.4em;
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+}
+
+.cp-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.cp-btn {
+  padding: 0.5em 1em;
+  border: 1px solid var(--field-border);
+  border-radius: 0.4em;
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cp-btn:hover {
+  border-color: var(--ink);
+}
+
+.cp-btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.cp-btn--primary:hover {
+  filter: brightness(0.92);
+}
+
+.cp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cp-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.cp-link:hover {
+  color: var(--accent);
+}
+
+.cp-courses,
+.cp-schools {
+  margin: 0 0 1em;
+  padding: 0;
+  list-style: none;
+}
+
+.cp-schools:empty {
+  display: none;
+}
+
+.cp-schools > li {
+  padding: 0.3em 0;
+}
+
+.cp-school {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15em;
+  width: 100%;
+  margin: 0;
+  padding: 0.5em 0.7em;
+  border: 1px solid var(--field-border);
+  border-radius: 0.4em;
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Settings rows: label on the left, control on the right */
+.cp-setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6em 1em;
+  padding: 0.75em 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cp-setting .cp-label {
+  margin: 0;
+}
+
+.cp-seg {
+  display: inline-flex;
+  border: 1px solid var(--field-border);
+  border-radius: 0.45em;
+  overflow: hidden;
+}
+
+.cp-seg button {
+  margin: 0;
+  padding: 0.42em 0.85em;
+  border: 0;
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cp-seg button + button {
+  border-left: 1px solid var(--field-border);
+}
+
+.cp-seg button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.cp-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.cp-stepper .cp-btn {
+  width: 2.1em;
+  padding: 0.35em 0;
+  text-align: center;
+}
+
+.cp-stepper output {
+  min-width: 3.4em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-school:hover,
+.cp-school:focus-visible {
+  border-color: var(--accent);
+  background: rgba(196, 81, 58, 0.06);
+  outline: none;
+}
+
+.cp-school-name {
+  font-weight: 600;
+}
+
+.cp-school-domain {
+  font-size: 0.82em;
+  color: var(--ink-soft);
+}
+
+.cp-course {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.35em 0;
+  border-bottom: 1px solid var(--rule);
+  cursor: pointer;
+}
+
+.cp-course input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.dot {
+  flex: none;
+  display: inline-block;
+  width: 0.65em;
+  height: 0.65em;
+  border-radius: 50%;
+  background: var(--c, #999);
+}
+
+/* ---------- Canvas: assignments on the pages ---------- */
+
+.due {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15cqw;
+  max-height: 40%;
+  margin: 0 -5cqw;
+  padding: 0.8cqw 5cqw 0.9cqw calc(var(--margin-x) + 2.4cqw);
+  border-bottom: 1px solid var(--rule);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.due[hidden],
+:root:not(.canvas-on) .due,
+:root:not(.canvas-on) .wd-due {
+  display: none;
+}
+
+.due-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  width: 100%;
+  margin: 0;
+  padding: 0.25em 0.4em;
+  border: 0;
+  border-radius: 0.3em;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: clamp(11px, 2.2cqw, 14px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.due-item:hover {
+  background: rgba(214, 160, 80, 0.12);
+}
+
+.due-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.due-meta {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78em;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.due-item.is-done {
+  opacity: 0.55;
+}
+
+.due-item.is-done .due-title {
+  text-decoration: line-through;
+}
+
+.due-item.is-missing .due-meta {
+  color: var(--accent);
+}
+
+.wd-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2em;
+  min-width: 0;
+  padding: 0 4cqw 0 3cqw;
+  overflow: hidden;
+}
+
+.wd-body .wd-preview {
+  padding: 0;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.wd-due {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2em 0.9em;
+  font-size: clamp(9.5px, 1.85cqw, 12px);
+  line-height: 1.25;
+  overflow: hidden;
+}
+
+.wd-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wd-item.is-done {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.wd-more {
+  color: var(--ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not(.is-desktop) :is(.tab, .corner, .week-day) {
+    transition: none;
+  }
+}
