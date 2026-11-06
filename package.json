@@ -10,6 +10,7 @@
   "scripts": {
     "start": "electron .",
     "icons": "node scripts/make-icons.js",
+    "screenshots": "electron scripts/screenshots.js",
     "dist": "electron-builder --win"
   },
   "build": {

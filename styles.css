@@ -659,7 +659,7 @@ body {
 .week-day.is-today .wd-num::after {
   content: "";
   position: absolute;
-  inset: -0.26em -0.38em -0.2em;
+  inset: -0.14em -0.38em -0.18em;
   border: 2px solid var(--accent);
   border-radius: 52% 48% 55% 45% / 50% 56% 44% 50%;
   transform: rotate(-7deg);

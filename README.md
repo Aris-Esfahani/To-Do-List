@@ -4,6 +4,12 @@ A minimal, lightweight to-do list that sits on your desktop like a paper notepad
 
 There's no window frame or background: only the pad and its index tabs are drawn, and clicks on the empty space around them go through to whatever is underneath. Pages flip up and over the top. It lives in the system tray, so it's always a click away and never in the way.
 
+<p align="center">
+  <img src="docs/notepad-light.png" width="46%" alt="A day page in light mode: ruled paper with handwritten to-dos, colored index tabs down the left side">
+  &nbsp;&nbsp;
+  <img src="docs/notepad-dark.png" width="46%" alt="The week overview in dark mode: one row per day with that day's notes, today circled">
+</p>
+
 **Pages**, top to bottom (matching the tabs on the left):
 
 1. **Notes**: a blank scratch pad for anything
@@ -83,4 +89,5 @@ The workflow builds both exes on a Windows runner and publishes a release with t
 | `preload.js` | The few window actions the page may ask for |
 | `canvas.js` | Canvas integration: school finder, sign-in window, access token, fetching and caching |
 | `scripts/make-icons.js` | Draws the app/tray icon into `assets/` (`npm run icons`) |
+| `scripts/screenshots.js` | Renders the README screenshots into `docs/` (`npm run screenshots`) |
 | `.github/workflows/release.yml` | Builds and publishes a release on each `v*` tag |
