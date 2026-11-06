@@ -23,7 +23,9 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run dist
+      # --publish never: electron-builder would otherwise try to publish to GitHub itself on a
+      # tag build and fail without a token. The release step below attaches the files instead.
+      - run: npm run dist -- --publish never
 
       - name: Publish release with both downloads
         uses: softprops/action-gh-release@v2
