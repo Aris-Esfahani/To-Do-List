@@ -835,6 +835,20 @@ svg.defs {
   height: 0;
 }
 
+/* Ball shading for a crumpled page (see crumple() in app.js): percentages, so it squashes
+   with the page into the ball's round proportions */
+.ball-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  /* The ball's outline sits at about 45% from the centre, so the rim darkens just inside that */
+  background:
+    radial-gradient(ellipse 20% 20% at 36% 32%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 100%),
+    radial-gradient(ellipse 46% 46% at 50% 50%, rgba(0, 0, 0, 0) 45%, rgba(0, 0, 0, 0.22) 72%, rgba(0, 0, 0, 0.5) 90%, rgba(0, 0, 0, 0.72) 100%);
+}
+
 /* ---------- Week overview ---------- */
 
 .week {

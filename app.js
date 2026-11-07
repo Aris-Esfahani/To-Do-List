@@ -743,9 +743,28 @@
   // gleam, the writing warps along the folds) while the sheet bunches into a jagged ball, which
   // then drops off the bottom of the pad. The wrinkles come from the #crumple filter in
   // index.html; its bump height and warp strength are driven here, frame by frame.
-  const RECT = [[0, 0], [25, 0], [50, 0], [75, 0], [100, 0], [100, 25], [100, 50], [100, 75], [100, 100], [75, 100], [50, 100], [25, 100], [0, 100], [0, 75], [0, 50], [0, 25]];
-  const BALL = [[8, 6], [28, 2], [52, 9], [74, 1], [94, 10], [100, 30], [92, 52], [99, 74], [90, 96], [72, 100], [50, 91], [27, 99], [6, 94], [0, 72], [9, 50], [2, 27]];
-  const poly = (points) => `polygon(${points.map(([x, y]) => `${x}% ${y}%`).join(', ')})`;
+  // Outlines the sheet is clipped to along the way, as 32 corners walked clockwise from the
+  // centre of the top edge (the same count and order in each, so the browser can morph one into
+  // the next): the flat sheet, the sheet with its edges tucked in, and a round ball. The ball
+  // is round once the sheet is also squashed to the ball's proportions (see the transform
+  // keyframes). The jitter is fixed, so every crumple looks the same.
+  const CORNERS = 32;
+  const jitter = (i, amount) => amount * Math.sin(i * 12.9898 + 4.1414) * Math.cos(i * 3.7);
+  const RECT = [];
+  const TUCKED = [];
+  const ROUND = [];
+  for (let i = 0; i < CORNERS; i++) {
+    const a = (i / CORNERS) * Math.PI * 2 - Math.PI / 2; // start at the top, go clockwise
+    const dx = Math.cos(a);
+    const dy = Math.sin(a);
+    const edge = 1 / Math.max(Math.abs(dx), Math.abs(dy)); // out to the square's edge
+    RECT.push([50 + 50 * dx * edge, 50 + 50 * dy * edge]);
+    const tuck = 0.86 + jitter(i, 0.08);
+    TUCKED.push([50 + 50 * dx * edge * tuck, 50 + 50 * dy * edge * tuck]);
+    const r = 45 + jitter(i, 3);
+    ROUND.push([50 + r * dx, 50 + r * dy]);
+  }
+  const poly = (points) => `polygon(${points.map(([x, y]) => `${x.toFixed(1)}% ${y.toFixed(1)}%`).join(', ')})`;
   const easeIn = (k) => k * k;
 
   // Balls the page up and drops it, then removes the section (or wipes it clean if it's the last one)
@@ -763,8 +782,12 @@
       const shade = document.querySelector('#crumple feDiffuseLighting');
       const gleam = document.querySelector('#crumple feSpecularLighting');
       const warp = document.querySelector('#crumple feDisplacementMap');
-      const DUR = 1300;
-      const CRUMPLED_AT = 0.6; // fraction of the animation by which the sheet is fully balled up
+      // Ball shading (dark rim, soft highlight) that fades in once it's a ball
+      const sphere = document.createElement('div');
+      sphere.className = 'ball-shade';
+      p.front.append(sphere);
+      const DUR = 1500;
+      const CRUMPLED_AT = 0.62; // fraction of the animation by which the sheet is fully balled up
       const t0 = performance.now();
       const wrinkle = (now) => {
         const k = Math.min(1, (now - t0) / DUR);
@@ -775,13 +798,16 @@
         if (k < 1 && p.crumpling) requestAnimationFrame(wrinkle);
       };
       requestAnimationFrame(wrinkle);
+      sphere.animate([{ opacity: 0 }, { opacity: 0, offset: 0.4 }, { opacity: 1, offset: 0.64 }, { opacity: 1 }], { duration: DUR, fill: 'forwards' });
+      // The page is 3:4, so squashing it to scale(x, 0.75x) makes the round outline a circle
       const fall = el.animate([
         { offset: 0, transform: 'none', clipPath: poly(RECT), opacity: 1 },
-        { offset: 0.18, transform: 'translateY(-1.5%) scale(1.02) rotate(-1deg)', clipPath: poly(RECT), opacity: 1 },
-        { offset: 0.42, transform: 'scale(0.72, 0.8) rotate(3deg)', clipPath: poly(BALL), opacity: 1 },
-        { offset: 0.6, transform: 'scale(0.4, 0.46) rotate(8deg)', clipPath: poly(BALL), opacity: 1 },
-        { offset: 0.72, transform: 'scale(0.36, 0.42) rotate(-4deg) translateY(6%)', clipPath: poly(BALL), opacity: 1 },
-        { offset: 1, transform: 'scale(0.3, 0.34) rotate(35deg) translateY(190%)', clipPath: poly(BALL), opacity: 0 },
+        { offset: 0.14, transform: 'translateY(-1.5%) scale(1.02) rotate(-1deg)', clipPath: poly(RECT), opacity: 1 },
+        { offset: 0.42, transform: 'scale(0.66, 0.62) rotate(4deg)', clipPath: poly(TUCKED), opacity: 1 },
+        { offset: 0.62, transform: 'scale(0.34, 0.255) rotate(-6deg)', clipPath: poly(ROUND), opacity: 1 },
+        { offset: 0.72, transform: 'scale(0.36, 0.27) rotate(2deg) translateY(4%)', clipPath: poly(ROUND), opacity: 1 },
+        { offset: 0.86, transform: 'scale(0.34, 0.255) rotate(40deg) translateY(140%)', clipPath: poly(ROUND), opacity: 1 },
+        { offset: 1, transform: 'scale(0.34, 0.255) rotate(80deg) translateY(250%)', clipPath: poly(ROUND), opacity: 0 },
       ], { duration: DUR, easing: 'cubic-bezier(.4, 0, .6, 1)', fill: 'forwards' });
       await fall.finished.catch(() => {});
       for (const node of [shade, gleam]) node?.setAttribute('surfaceScale', '0');
