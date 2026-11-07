@@ -804,6 +804,7 @@ body {
 .text {
   flex: 1;
   min-width: 0;
+  min-height: var(--line); /* an empty line is still a full line to click on */
   padding: 0 0 0 2.4cqw;
   outline: 0;
   font-family: var(--write-font);

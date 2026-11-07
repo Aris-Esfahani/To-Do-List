@@ -573,7 +573,13 @@
       setCaret(textOf(gutter.closest('.line')), 0);
       return;
     }
-    if (e.target.closest('.line')) return;
+    const line = e.target.closest('.line');
+    if (line) {
+      if (e.target.closest('.text')) return; // the browser places the caret itself
+      e.preventDefault(); // elsewhere on the line: write at its end
+      setCaret(textOf(line), textOf(line).textContent.length);
+      return;
+    }
     e.preventDefault(); // clicked the empty paper below the last line: start writing there
     focusEditor(pageOf(lines), true);
   });
