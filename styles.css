@@ -829,20 +829,10 @@ body {
   opacity: 0.5;
 }
 
-/* Creases that fade in while a page is being crumpled (see app.js) */
-.creases {
+svg.defs {
   position: absolute;
-  inset: 0;
-  z-index: 4;
-  pointer-events: none;
-  opacity: 0;
-  background:
-    linear-gradient(115deg, transparent 30%, rgba(0, 0, 0, 0.2) 30.5%, transparent 31.5%, transparent 55%, rgba(255, 255, 255, 0.4) 55.5%, transparent 56.5%),
-    linear-gradient(62deg, transparent 20%, rgba(0, 0, 0, 0.16) 20.5%, transparent 21.5%, transparent 68%, rgba(0, 0, 0, 0.18) 68.5%, transparent 69.5%),
-    linear-gradient(-40deg, transparent 40%, rgba(255, 255, 255, 0.35) 40.5%, transparent 41.5%, transparent 80%, rgba(0, 0, 0, 0.16) 80.5%, transparent 81.5%),
-    linear-gradient(160deg, transparent 12%, rgba(0, 0, 0, 0.14) 12.5%, transparent 13.5%, transparent 45%, rgba(0, 0, 0, 0.22) 45.5%, transparent 46.5%, transparent 88%, rgba(255, 255, 255, 0.35) 88.5%, transparent 89.5%),
-    linear-gradient(8deg, transparent 33%, rgba(0, 0, 0, 0.12) 33.5%, transparent 34.5%, transparent 72%, rgba(255, 255, 255, 0.3) 72.5%, transparent 73.5%),
-    radial-gradient(60% 50% at 50% 50%, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.28) 100%);
+  width: 0;
+  height: 0;
 }
 
 /* ---------- Week overview ---------- */

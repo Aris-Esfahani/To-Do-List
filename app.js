@@ -739,11 +739,14 @@
     if (p.subHTML) p.el.querySelector('.page-sub').innerHTML = p.subHTML;
   }
 
-  // The crumple: the sheet lifts, scrunches into a jagged ball (its outline is clipped to a
-  // crumpled shape while creases fade in), then drops off the bottom of the pad.
+  // The crumple: the sheet's surface wrinkles under a raking light (creases darken, ridges
+  // gleam, the writing warps along the folds) while the sheet bunches into a jagged ball, which
+  // then drops off the bottom of the pad. The wrinkles come from the #crumple filter in
+  // index.html; its bump height and warp strength are driven here, frame by frame.
   const RECT = [[0, 0], [25, 0], [50, 0], [75, 0], [100, 0], [100, 25], [100, 50], [100, 75], [100, 100], [75, 100], [50, 100], [25, 100], [0, 100], [0, 75], [0, 50], [0, 25]];
   const BALL = [[8, 6], [28, 2], [52, 9], [74, 1], [94, 10], [100, 30], [92, 52], [99, 74], [90, 96], [72, 100], [50, 91], [27, 99], [6, 94], [0, 72], [9, 50], [2, 27]];
   const poly = (points) => `polygon(${points.map(([x, y]) => `${x}% ${y}%`).join(', ')})`;
+  const easeIn = (k) => k * k;
 
   // Balls the page up and drops it, then removes the section (or wipes it clean if it's the last one)
   async function crumple(p) {
@@ -756,19 +759,33 @@
       const el = p.el;
       el.style.zIndex = liftedZ(p.index);
       el.style.transformOrigin = '50% 55%';
-      const creases = document.createElement('div');
-      creases.className = 'creases';
-      p.front.append(creases);
-      const DUR = 1150;
-      creases.animate([{ opacity: 0 }, { opacity: 0, offset: 0.22 }, { opacity: 1, offset: 0.55 }, { opacity: 1 }], { duration: DUR, fill: 'forwards' });
+      el.style.filter = 'url(#crumple)';
+      const shade = document.querySelector('#crumple feDiffuseLighting');
+      const gleam = document.querySelector('#crumple feSpecularLighting');
+      const warp = document.querySelector('#crumple feDisplacementMap');
+      const DUR = 1300;
+      const CRUMPLED_AT = 0.6; // fraction of the animation by which the sheet is fully balled up
+      const t0 = performance.now();
+      const wrinkle = (now) => {
+        const k = Math.min(1, (now - t0) / DUR);
+        const c = easeIn(Math.min(1, k / CRUMPLED_AT)); // 0 flat → 1 fully crumpled
+        shade?.setAttribute('surfaceScale', (c * 16).toFixed(2));
+        gleam?.setAttribute('surfaceScale', (c * 16).toFixed(2));
+        warp?.setAttribute('scale', (c * 48).toFixed(1));
+        if (k < 1 && p.crumpling) requestAnimationFrame(wrinkle);
+      };
+      requestAnimationFrame(wrinkle);
       const fall = el.animate([
         { offset: 0, transform: 'none', clipPath: poly(RECT), opacity: 1 },
-        { offset: 0.2, transform: 'translateY(-1.5%) scale(1.02) rotate(-1deg)', clipPath: poly(RECT), opacity: 1 },
-        { offset: 0.55, transform: 'scale(0.42, 0.5) rotate(7deg)', clipPath: poly(BALL), opacity: 1 },
-        { offset: 0.7, transform: 'scale(0.36, 0.42) rotate(-5deg) translateY(6%)', clipPath: poly(BALL), opacity: 1 },
+        { offset: 0.18, transform: 'translateY(-1.5%) scale(1.02) rotate(-1deg)', clipPath: poly(RECT), opacity: 1 },
+        { offset: 0.42, transform: 'scale(0.72, 0.8) rotate(3deg)', clipPath: poly(BALL), opacity: 1 },
+        { offset: 0.6, transform: 'scale(0.4, 0.46) rotate(8deg)', clipPath: poly(BALL), opacity: 1 },
+        { offset: 0.72, transform: 'scale(0.36, 0.42) rotate(-4deg) translateY(6%)', clipPath: poly(BALL), opacity: 1 },
         { offset: 1, transform: 'scale(0.3, 0.34) rotate(35deg) translateY(190%)', clipPath: poly(BALL), opacity: 0 },
       ], { duration: DUR, easing: 'cubic-bezier(.4, 0, .6, 1)', fill: 'forwards' });
       await fall.finished.catch(() => {});
+      for (const node of [shade, gleam]) node?.setAttribute('surfaceScale', '0');
+      warp?.setAttribute('scale', '0');
     }
 
     const i = sections.findIndex((s) => s.id === p.id);

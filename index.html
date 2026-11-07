@@ -14,6 +14,28 @@
   <script src="app.js" defer></script>
 </head>
 <body>
+  <!-- Crumpled-paper effect for throwing a notes page away (see crumple() in app.js): a noise
+       field is the paper's bumps; a light shades its creases and the same field warps the page
+       along the wrinkles. app.js turns the bump height and warp up as the sheet crumples. -->
+  <svg class="defs" aria-hidden="true" focusable="false">
+    <filter id="crumple" x="-15%" y="-15%" width="130%" height="130%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.016 0.02" numOctaves="4" seed="11" result="noise"/>
+      <feComponentTransfer in="noise" result="bumps">
+        <feFuncA type="gamma" amplitude="1" exponent="1.8" offset="0"/>
+      </feComponentTransfer>
+      <feDiffuseLighting in="bumps" lighting-color="#ffffff" surfaceScale="0" diffuseConstant="1.1" result="shade">
+        <feDistantLight azimuth="230" elevation="58"/>
+      </feDiffuseLighting>
+      <feSpecularLighting in="bumps" lighting-color="#ffffff" surfaceScale="0" specularConstant="0.38" specularExponent="16" result="gleam">
+        <feDistantLight azimuth="230" elevation="58"/>
+      </feSpecularLighting>
+      <feBlend in="SourceGraphic" in2="shade" mode="multiply" result="shaded"/>
+      <feBlend in="shaded" in2="gleam" mode="screen" result="lit"/>
+      <feComposite in="lit" in2="SourceAlpha" operator="in" result="paper"/>
+      <feDisplacementMap in="paper" in2="noise" scale="0" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
+
   <main class="scene">
     <h1 class="sr-only">Notepad</h1>
 
