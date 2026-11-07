@@ -114,6 +114,7 @@ const native = (() => {
       PostMessageW: user32.func('bool __stdcall PostMessageW(intptr_t hwnd, uint32 msg, uintptr_t wParam, intptr_t lParam)'),
       GetWindowLongPtrW: user32.func('intptr_t __stdcall GetWindowLongPtrW(intptr_t hwnd, int index)'),
       SetWindowPos: user32.func('bool __stdcall SetWindowPos(intptr_t hwnd, intptr_t insertAfter, int x, int y, int cx, int cy, uint32 flags)'),
+      GetAsyncKeyState: user32.func('int16 __stdcall GetAsyncKeyState(int key)'),
     };
   } catch {
     return null;
@@ -127,6 +128,10 @@ const hwndOf = (window) => Number(window.getNativeWindowHandle().readBigUInt64LE
 const nativeDrag = native && ((window) => {
   const WM_NCLBUTTONDOWN = 0x00a1;
   const HTCAPTION = 2;
+  const VK_LBUTTON = 0x01;
+  // Only while the button is really still down: handing over after a release would leave the
+  // window following the mouse until the next click
+  if ((native.GetAsyncKeyState(VK_LBUTTON) & 0x8000) === 0) return false;
   native.ReleaseCapture(); // the page grabbed the mouse on pointerdown; Windows needs it back
   return Boolean(native.PostMessageW(hwndOf(window), WM_NCLBUTTONDOWN, HTCAPTION, 0));
 });
@@ -312,12 +317,22 @@ function createWindow() {
   });
 
   let saveTimer = 0;
+  let movedTimer = 0;
+  const notifyMoved = () => {
+    clearTimeout(movedTimer);
+    movedTimer = 0;
+    if (!win.isDestroyed()) win.webContents.send('notepad:moved');
+  };
   win.on('move', () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveWindowState, 400);
+    // A native move reports 'moved' when it ends; in case it doesn't, the page is told when
+    // the window has stopped moving for a moment
+    clearTimeout(movedTimer);
+    movedTimer = setTimeout(notifyMoved, 250);
   });
   // Windows has finished a native move: let the page tidy up its drag state
-  win.on('moved', () => win.webContents.send('notepad:moved'));
+  win.on('moved', notifyMoved);
   win.on('blur', () => {
     stopMove();
     stopResize();
@@ -368,6 +383,8 @@ function toggleWindow() {
 /* ---------- Messages from the page (see preload.js) ---------- */
 
 const fromOurWindow = (event) => win && !win.isDestroyed() && event.sender === win.webContents;
+// Set NOTEPAD_DEBUG=1 to see what the page asks of the window (for chasing input problems)
+const debug = process.env.NOTEPAD_DEBUG ? (...args) => console.log('[notepad]', ...args) : () => {};
 
 ipcMain.on('notepad:window', (event, action) => {
   if (!fromOurWindow(event)) return;
@@ -375,22 +392,56 @@ ipcMain.on('notepad:window', (event, action) => {
   else if (action === 'hide') hideToTray();
 });
 
+// Click-through: the page asks for it while the pointer is over empty space, and turns it off
+// again from the mouse moves Electron forwards into the ignoring window. That forwarding has
+// let us down before, so while ignoring, the cursor is also checked here a few times a second:
+// over the pad, the window is made solid again and the page is told.
+let ignoring = false;
+let ignoreTimer = null;
+
+function setIgnore(on) {
+  ignoring = Boolean(on);
+  if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(ignoring, { forward: true });
+  clearInterval(ignoreTimer);
+  ignoreTimer = ignoring ? setInterval(checkCursorOverPad, 120) : null;
+}
+
+function checkCursorOverPad() {
+  if (!win || win.isDestroyed() || !win.isVisible() || win.isMinimized()) return;
+  const b = win.getBounds();
+  const c = screen.getCursorScreenPoint();
+  const overPad = c.x >= b.x + GAP.x + TAB_ALLOWANCE - 6 && c.x <= b.x + b.width - GAP.x + 6
+    && c.y >= b.y + GAP.top - 6 && c.y <= b.y + b.height - GAP.bottom + 6;
+  if (!overPad) return;
+  debug('pass-through off (cursor over the pad)');
+  setIgnore(false);
+  win.webContents.send('notepad:pass-through', false);
+}
+
 ipcMain.on('notepad:pass-through', (event, on) => {
   if (!fromOurWindow(event)) return;
-  win.setIgnoreMouseEvents(Boolean(on), { forward: true });
+  debug('pass-through', on);
+  setIgnore(on);
 });
 
 ipcMain.handle('notepad:drag-window', (event) => {
-  if (!fromOurWindow(event) || pinned || !nativeDrag) return false;
+  if (!fromOurWindow(event) || pinned || !nativeDrag) {
+    debug('drag-window: declined', { pinned, native: Boolean(nativeDrag) });
+    return false;
+  }
   try {
-    return nativeDrag(win);
-  } catch {
+    const ok = nativeDrag(win);
+    debug('drag-window: handed to Windows', ok);
+    return ok;
+  } catch (e) {
+    debug('drag-window: failed', e.message);
     return false;
   }
 });
 
 ipcMain.on('notepad:move', (event, phase) => {
   if (!fromOurWindow(event)) return;
+  debug('move', phase);
   if (phase === 'start') startMove();
   else stopMove();
 });

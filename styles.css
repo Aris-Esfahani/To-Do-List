@@ -191,9 +191,20 @@ body {
 
 /* ---------- Desktop: grab the notepad anywhere but the writing lines to move it ---------- */
 
-/* app.js moves the window from pointer events on the title area, the strip above it, the tabs
-   and the week rows (handing the drag to Windows once it starts). No CSS drag regions: on
-   Windows they swallow the clicks of any button inside them. */
+/* The title area and the strip above it are moved by Windows itself (smoothest). A drag region
+   swallows clicks, so the buttons inside the header are carved out, and the region is switched
+   off while a settings or Canvas card is open (the card overlaps the header at small sizes).
+   The tabs and week rows have to stay clickable, so app.js moves the window from their pointer
+   events instead, handing the drag to Windows once it starts. */
+.is-desktop:not(.is-pinned):not(.has-card) :is(.page-head, .drag-strip) {
+  -webkit-app-region: drag;
+}
+
+.page-head :is(button, .sub-btn),
+.is-desktop :is(.tabs, .win-controls, .resize-grip, .canvas-bar, .card) {
+  -webkit-app-region: no-drag;
+}
+
 .drag-strip {
   display: none;
 }
@@ -208,7 +219,7 @@ body {
   display: block;
 }
 
-.is-desktop:not(.is-pinned) :is(.drag-strip, .page-head, .tabs, .week) {
+.is-desktop:not(.is-pinned) :is(.tabs, .week) {
   cursor: grab;
 }
 

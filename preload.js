@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('notepad', {
   window: (action) => ipcRenderer.send('notepad:window', String(action)),
   // true while the mouse is over empty, transparent space, so clicks fall through to the desktop
   setPassThrough: (on) => ipcRenderer.send('notepad:pass-through', Boolean(on)),
+  // The window changed that by itself (it turns click-through off when it sees the cursor over the pad)
+  onPassThrough: (callback) => ipcRenderer.on('notepad:pass-through', (_event, on) => callback(Boolean(on))),
   // The mouse button is down and has started to drag: hand the move to the operating system,
   // which then moves the window itself until the button is released. Resolves to false if the
   // OS can't take over (then the page falls back to moveBy below).

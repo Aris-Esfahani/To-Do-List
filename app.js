@@ -803,11 +803,21 @@
     else if (e.target.closest('[data-crumple-no]')) restoreSub(p);
   });
 
+  // (In the browser the title can be double-clicked to rename; in the desktop app the title is
+  // a drag handle and the Rename button does it.)
   pad.addEventListener('dblclick', (e) => {
     const title = e.target.closest('.page-title');
     const p = title && pageOf(title);
     if (p?.kind === 'notes' && !title.isContentEditable) startRename(p);
   });
+
+  // While a card (settings, Canvas) is open, the header stops being a drag handle so the card's
+  // buttons over it can be clicked (see styles.css).
+  const cards = document.querySelectorAll('.card');
+  const syncCards = () => root.classList.toggle('has-card', [...cards].some((c) => !c.hidden));
+  const cardWatcher = new MutationObserver(syncCards);
+  for (const card of cards) cardWatcher.observe(card, { attributes: true, attributeFilter: ['hidden'] });
+  syncCards();
 
   /* ---------- Keep the dates right: the app lives in the tray for days at a time ---------- */
 
@@ -852,6 +862,11 @@
       const inside = e.target.closest?.('.clipboard') || near(clipboard.getBoundingClientRect(), e.clientX, e.clientY) || near(tablist.getBoundingClientRect(), e.clientX, e.clientY);
       setPassThrough(!inside);
     }, { passive: true });
+    // A press reached the page, so the window can't be ignoring the mouse; keep the two in step
+    document.addEventListener('pointerdown', () => setPassThrough(false), true);
+    // The desktop side also turns click-through off by itself when it sees the cursor over the
+    // pad (a safety net for when forwarded mouse moves don't arrive); it tells the page so.
+    bridge.onPassThrough((on) => { passThrough = on; });
     setPassThrough(true);
 
     const pinButton = document.querySelector('[data-pin]');
@@ -876,14 +891,13 @@
     grip.addEventListener('pointerup', endResize);
     grip.addEventListener('lostpointercapture', endResize);
 
-    // Drag the title area, the strip above it, the tabs or the week rows to move the notepad.
-    // A press only becomes a move after the pointer travels a few pixels, so clicks (and
-    // double-clicks) on everything in those areas still work. Once it is a move, the window is
-    // handed to Windows, which drags it itself until the button is released; if that isn't
-    // possible, the page drives the move from its own pointer events, once per frame.
-    // (No CSS drag regions: on Windows they swallow the clicks of any button inside them.)
-    const DRAG_FROM = '.drag-strip, .page-head, .tabs, .week';
-    const NOT_FROM = '.sub-btn, .tab-chev, .tab--add, .mark, .text, input, .is-editing';
+    // Drag the tabs or the week rows to move the notepad. (The title area is dragged natively
+    // by Windows, via CSS.) A press only becomes a move after the pointer travels a few pixels,
+    // so clicks on the tabs and the week's days still work as clicks. Once it is a move, the
+    // window is handed to Windows, which drags it itself until the button is released; if that
+    // isn't possible, the page drives the move from its own pointer events, once per frame.
+    const DRAG_FROM = '.tabs, .week';
+    const NOT_FROM = '.tab-chev, .tab--add';
     const MOVE_THRESHOLD = 4;
     let press = null;
     let justMoved = false;
@@ -892,7 +906,9 @@
       frame = 0;
       if (press?.moving === 'self') bridge.moveBy(press.dx, press.dy);
     };
+    // Back to normal: no grabbing cursor, and the click that ends a drag isn't a click
     const finish = () => {
+      if (!root.classList.contains('is-moving')) return;
       root.classList.remove('is-moving');
       justMoved = true;
       setTimeout(() => { justMoved = false; }, 0);
@@ -904,9 +920,8 @@
         frame = 0;
         bridge.moveBy(press.dx, press.dy);
         bridge.move('end');
-        finish();
       }
-      // 'native': Windows is moving it; onMoved below tidies up when it's done
+      finish();
       press = null;
     };
     bridge.onMoved(finish);
@@ -916,6 +931,13 @@
       press = { x: e.screenX, y: e.screenY, dx: 0, dy: 0, moving: false, target: e.target, id: e.pointerId };
     });
     document.addEventListener('pointermove', (e) => {
+      // Windows eats the button release when it has moved the window itself, so the first
+      // buttonless move afterwards is the sign that the drag is over
+      if (e.buttons === 0 && (press?.moving === 'native' || root.classList.contains('is-moving'))) {
+        finish();
+        press = null;
+        return;
+      }
       if (!press) return;
       press.dx = e.screenX - press.x;
       press.dy = e.screenY - press.y;
