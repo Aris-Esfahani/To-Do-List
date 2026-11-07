@@ -920,6 +920,9 @@
   const desktop = { pinned: false, onTop: false };
 
   if (bridge) {
+    // Two frames in: the pad is drawn, so the window can come on screen (see main.js)
+    requestAnimationFrame(() => requestAnimationFrame(() => bridge.painted()));
+
     document.querySelector('.win-controls').addEventListener('click', (e) => {
       const button = e.target.closest('[data-win]');
       if (button) bridge.window(button.dataset.win);

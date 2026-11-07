@@ -6,6 +6,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('notepad', {
   // 'minimize' (to the taskbar) or 'hide' (to the tray)
   window: (action) => ipcRenderer.send('notepad:window', String(action)),
+  // The page has painted its first frames: the window can be brought on screen
+  painted: () => ipcRenderer.send('notepad:painted'),
   // true while the mouse is over empty, transparent space, so clicks fall through to the desktop
   setPassThrough: (on) => ipcRenderer.send('notepad:pass-through', Boolean(on)),
   // The window changed that by itself (it turns click-through off when it sees the cursor over the pad)

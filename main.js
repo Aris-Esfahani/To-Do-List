@@ -30,6 +30,7 @@ let moveStart = null; // window bounds when a drag began
 let pinned = false; // locked in place (and in front)
 let onTop = false; // kept in front of other apps even when unpinned
 let topTimer = null;
+let revealing = false; // the window is parked off-screen until its first frames are painted
 
 app.setAppUserModelId(APP_ID);
 
@@ -98,7 +99,7 @@ function savedBounds(bounds) {
 }
 
 function saveWindowState() {
-  if (!win || win.isDestroyed() || win.isMinimized()) return;
+  if (!win || win.isDestroyed() || win.isMinimized() || revealing) return;
   writeState({ bounds: win.getBounds() });
 }
 
@@ -116,6 +117,7 @@ const native = (() => {
       GetWindowLongPtrW: user32.func('intptr_t __stdcall GetWindowLongPtrW(intptr_t hwnd, int index)'),
       SetWindowPos: user32.func('bool __stdcall SetWindowPos(intptr_t hwnd, intptr_t insertAfter, int x, int y, int cx, int cy, uint32 flags)'),
       GetAsyncKeyState: user32.func('int16 __stdcall GetAsyncKeyState(int key)'),
+      DwmSetWindowAttribute: koffi.load('dwmapi.dll').func('int __stdcall DwmSetWindowAttribute(intptr_t hwnd, uint32 attr, uint32 *value, uint32 size)'),
     };
   } catch {
     return null;
@@ -301,10 +303,40 @@ function createWindow() {
 
   win.loadFile(path.join(__dirname, 'index.html'), { query: { desktop: '1' } });
 
+  // Windows paints a brand-new window in the accent colour until the app's first frame lands,
+  // and that flash shows even when the window is created hidden. So the window is first shown
+  // parked off-screen, and moved to its place once the page reports its first painted frames.
+  if (native) {
+    try {
+      const DWMWA_BORDER_COLOR = 34;
+      const DWMWA_COLOR_NONE = 0xfffffffe; // and no accent-coloured border around it either
+      native.DwmSetWindowAttribute(hwndOf(win), DWMWA_BORDER_COLOR, [DWMWA_COLOR_NONE], 4);
+    } catch {
+      /* older Windows: no such attribute */
+    }
+  }
   win.once('ready-to-show', () => {
-    if (!START_HIDDEN) win.show();
-    applyTop();
-    updateTrayMenu();
+    if (START_HIDDEN) {
+      updateTrayMenu();
+      return;
+    }
+    const home = win.getBounds();
+    revealing = true;
+    win.setPosition(home.x - 20000, home.y);
+    win.showInactive();
+    let done = false;
+    const reveal = () => {
+      if (done || win.isDestroyed()) return;
+      done = true;
+      revealing = false;
+      win.setBounds(home);
+      win.show();
+      win.focus();
+      applyTop();
+      updateTrayMenu();
+    };
+    ipcMain.once('notepad:painted', reveal);
+    setTimeout(reveal, 600); // in case the page never says so
   });
   win.webContents.on('did-finish-load', sendState);
   for (const event of ['show', 'restore', 'focus']) win.on(event, assertTop);
