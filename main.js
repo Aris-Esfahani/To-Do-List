@@ -9,6 +9,7 @@ const { app, BrowserWindow, Menu, Tray, ipcMain, screen, shell } = require('elec
 const fs = require('node:fs');
 const path = require('node:path');
 const canvas = require('./canvas');
+const fonts = require('./fonts');
 
 const APP_NAME = 'Notepad';
 const APP_ID = 'com.notepad.clipboard';
@@ -530,5 +531,6 @@ if (!app.requestSingleInstanceLock()) {
     createWindow();
     createTray();
     canvas.init({ app, window: win, ipcMain });
+    fonts.init({ app, window: win, ipcMain });
   });
 }

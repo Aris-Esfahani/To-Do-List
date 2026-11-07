@@ -50,6 +50,7 @@ Your password never passes through the notepad: it's typed into Canvas's own pag
 - **Resize it**: drag the small grip just off the pad's bottom-right corner. It keeps its proportions.
 - **Pin** (top right): locks it in place (no moving or resizing) and keeps it in front. Click again to unpin.
 - **Settings** (gear, top right): Light / Dark / System appearance, writing font (Handwritten, Serif, Sans, Mono), text size, list style, *Keep in front of other apps* (stays in front even when unpinned), and the Canvas card.
+- **More fonts…** (under the writing font): type the name of any font installed on the computer, or add one from the web: a Google Fonts name (say, `Lobster`), a link to a font's page on Google Fonts, or a link to a `.ttf`, `.otf` or `.woff2` file. Web fonts are downloaded once and kept on the computer, so they work offline.
 - **–** minimizes to the taskbar. **×** tucks it into the tray (the hidden icons by the clock); click the tray icon to bring it back.
 - **Right-click the tray icon** for *Pin in place*, *Start with Windows*, and *Quit*.
 

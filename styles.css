@@ -1287,6 +1287,76 @@ svg.defs {
   font-size: 0.9em;
 }
 
+/* More fonts… under the writing-font row */
+.cp-setting--fonts {
+  flex-wrap: wrap;
+}
+
+.cp-fonts-toggle {
+  flex-basis: 100%;
+  margin-top: 0.2em;
+  font-size: 0.9em;
+  text-align: left;
+}
+
+.cp-fonts {
+  flex-basis: 100%;
+  padding: 0.6em 0 0.2em;
+}
+
+.cp-fonts .cp-row {
+  margin-bottom: 0.8em;
+}
+
+.cp-fontlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  margin: 0.2em 0 0.8em;
+  padding: 0;
+  list-style: none;
+}
+
+.cp-fontlist li {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--field-border);
+  border-radius: 999px;
+  background: var(--field);
+}
+
+.cp-chip {
+  margin: 0;
+  padding: 0.35em 0.6em 0.35em 0.9em;
+  border: 0;
+  border-radius: 999px 0 0 999px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1.05em;
+  cursor: pointer;
+}
+
+.cp-chip.is-on {
+  background: var(--accent);
+  color: #fff;
+}
+
+.cp-x {
+  margin: 0;
+  padding: 0.25em 0.6em 0.25em 0.4em;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cp-x:hover {
+  color: var(--accent);
+}
+
 .cp-school:hover,
 .cp-school:focus-visible {
   border-color: var(--accent);

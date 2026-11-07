@@ -23,6 +23,7 @@
       "main.js",
       "preload.js",
       "canvas.js",
+      "fonts.js",
       "assets/**/*"
     ],
     "asarUnpack": [

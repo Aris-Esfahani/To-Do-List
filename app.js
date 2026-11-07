@@ -52,21 +52,51 @@
   const DEFAULT_PREFS = { theme: 'system', font: 'hand', scale: 100, marks: 'strike', notesExpanded: true };
 
   let prefs = { ...DEFAULT_PREFS, ...readJSON('prefs', {}) };
-  if (!FONTS[prefs.font]) prefs.font = DEFAULT_PREFS.font;
+  // The writing font is a preset key, "sys:<name>" for a font installed on the computer, or
+  // "web:<id>" for one imported from the web (see fonts.js)
+  if (!FONTS[prefs.font] && !/^(sys|web):./.test(String(prefs.font))) prefs.font = DEFAULT_PREFS.font;
   if (!THEMES[prefs.theme]) prefs.theme = DEFAULT_PREFS.theme;
   if (!MARKS[prefs.marks]) prefs.marks = DEFAULT_PREFS.marks;
   prefs.scale = Math.min(SCALE.max, Math.max(SCALE.min, Number(prefs.scale) || 100));
   prefs.notesExpanded = prefs.notesExpanded !== false;
+
+  const CUSTOM_RATIO = 0.62; // text size relative to the ruled lines for fonts we know nothing about
+  let webFonts = []; // [{ id, family, source }] imported fonts, from fonts.js
+  const loadedWebFonts = new Set();
+  const cssFamily = (name) => `"${String(name).replace(/["\\]/g, '')}"`;
+
+  function fontFamilyFor(key) {
+    if (FONTS[key]) return FONTS[key].family;
+    if (key.startsWith('sys:')) return `${cssFamily(key.slice(4))}, var(--serif)`;
+    const web = webFonts.find((f) => `web:${f.id}` === key);
+    return web ? `${cssFamily(web.family)}, var(--serif)` : FONTS.hand.family;
+  }
+
+  // Adds an imported font's files to the document (once), so its family name works in CSS
+  async function ensureWebFont(key) {
+    const id = key.startsWith('web:') ? key.slice(4) : null;
+    if (!id || loadedWebFonts.has(id) || !window.notepad?.fonts) return;
+    loadedWebFonts.add(id);
+    try {
+      for (const face of await window.notepad.fonts.data(id)) {
+        const descriptors = { weight: face.weight || '400', style: face.style || 'normal' };
+        if (face.unicodeRange) descriptors.unicodeRange = face.unicodeRange;
+        document.fonts.add(await new FontFace(face.family, face.bytes, descriptors).load());
+      }
+    } catch {
+      loadedWebFonts.delete(id);
+    }
+  }
 
   const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
   function applyPrefs() {
     const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && systemDark.matches);
     root.dataset.theme = dark ? 'dark' : 'light';
     root.dataset.marks = prefs.marks;
-    const font = FONTS[prefs.font];
-    root.style.setProperty('--write-font', font.family);
-    root.style.setProperty('--write-ratio', String(font.ratio));
+    root.style.setProperty('--write-font', fontFamilyFor(prefs.font));
+    root.style.setProperty('--write-ratio', String(FONTS[prefs.font]?.ratio ?? CUSTOM_RATIO));
     root.style.setProperty('--text-scale', String(prefs.scale / 100));
+    ensureWebFont(prefs.font);
   }
   function setPrefs(patch) {
     prefs = { ...prefs, ...patch };
@@ -1032,6 +1062,56 @@
       `<span class="cp-seg" role="group">${Object.entries(options).map(([k, label]) =>
         `<button type="button" data-set="${name}" data-value="${k}" aria-pressed="${k === value}">${esc(label)}</button>`).join('')}</span>`;
 
+    // "More fonts…": a font installed on the computer, by name, or one imported from the web
+    let fontsOpen = /^(sys|web):/.test(prefs.font);
+    let fontNotice = '';
+    let fontBusy = false;
+    let localFonts = null; // names of the fonts installed on the computer, when the browser lets us look
+    const fontsBridge = bridge?.fonts ?? null;
+
+    async function lookUpLocalFonts() {
+      if (localFonts || typeof window.queryLocalFonts !== 'function') return;
+      try {
+        localFonts = [...new Set((await window.queryLocalFonts()).map((f) => f.family))].sort((a, b) => a.localeCompare(b));
+      } catch {
+        localFonts = [];
+      }
+      render();
+    }
+
+    async function refreshWebFonts() {
+      if (!fontsBridge) return;
+      try { webFonts = await fontsBridge.list(); } catch { webFonts = []; }
+    }
+
+    function fontsHTML() {
+      const sysName = prefs.font.startsWith('sys:') ? prefs.font.slice(4) : '';
+      const options = (localFonts ?? []).map((n) => `<option value="${esc(n)}"></option>`).join('');
+      const chips = webFonts.map((f) => `
+        <li>
+          <button type="button" class="cp-chip${prefs.font === `web:${f.id}` ? ' is-on' : ''}" data-act="use-web" data-id="${esc(f.id)}" style="font-family: ${esc(cssFamily(f.family))}">${esc(f.family)}</button>
+          <button type="button" class="cp-x" data-act="remove-web" data-id="${esc(f.id)}" aria-label="Remove ${esc(f.family)}">×</button>
+        </li>`).join('');
+      return `
+        <div class="cp-fonts">
+          <span class="cp-label">A font installed on this computer</span>
+          <div class="cp-row">
+            <input class="cp-input" id="cp-sysfont" list="cp-sysfonts" placeholder="${localFonts?.length ? 'Start typing a font name…' : 'Font name, e.g. Segoe Print'}" value="${esc(sysName)}" autocomplete="off" spellcheck="false">
+            <datalist id="cp-sysfonts">${options}</datalist>
+            <button type="button" class="cp-btn" data-act="use-sys">Use</button>
+          </div>
+          ${fontsBridge ? `
+          <span class="cp-label">From the web</span>
+          <div class="cp-row">
+            <input class="cp-input" id="cp-webfont" placeholder="Google Fonts name (e.g. Lobster) or a link to a font file" autocomplete="off" spellcheck="false" ${fontBusy ? 'disabled' : ''}>
+            <button type="button" class="cp-btn cp-btn--primary" data-act="add-web" ${fontBusy ? 'disabled' : ''}>${fontBusy ? 'Adding…' : 'Add'}</button>
+          </div>
+          <p class="cp-muted">Any name from <em>fonts.google.com</em> works as typed; links can be a font's page there, or a .ttf, .otf or .woff2 file. Fonts are saved on this computer, so they keep working offline.</p>
+          ${chips ? `<ul class="cp-fontlist">${chips}</ul>` : ''}` : ''}
+          <p class="cp-error" data-font-notice>${esc(fontNotice)}</p>
+        </div>`;
+    }
+
     function render() {
       if (panel.hidden) return;
       const fonts = Object.fromEntries(Object.entries(FONTS).map(([k, f]) => [k, f.label]));
@@ -1040,9 +1120,11 @@
           <span class="cp-label">Appearance</span>
           ${seg('theme', THEMES, prefs.theme)}
         </div>
-        <div class="cp-setting">
+        <div class="cp-setting cp-setting--fonts">
           <span class="cp-label">Writing font</span>
           ${seg('font', fonts, prefs.font)}
+          <button type="button" class="cp-link cp-fonts-toggle" data-act="fonts-toggle" aria-expanded="${fontsOpen}">${fontsOpen ? 'Fewer fonts' : 'More fonts…'}</button>
+          ${fontsOpen ? fontsHTML() : ''}
         </div>
         <div class="cp-setting">
           <span class="cp-label">Text size</span>
@@ -1070,6 +1152,65 @@
         <p class="cp-muted cp-hint">Tip: click the mark in the margin (or press Ctrl+Enter) to cross a line out. Crossed-out lines sink to the bottom.</p>`;
     }
 
+    async function fontAction(act, button) {
+      const message = (e) => String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+      fontNotice = '';
+      if (act === 'fonts-toggle') {
+        fontsOpen = !fontsOpen;
+        render();
+        if (fontsOpen) {
+          lookUpLocalFonts();
+          await refreshWebFonts();
+          render();
+        }
+        return;
+      }
+      if (act === 'use-sys') {
+        const name = body.querySelector('#cp-sysfont')?.value.trim();
+        if (!name) {
+          fontNotice = 'Type the name of a font that\'s installed.';
+        } else if (localFonts?.length && !localFonts.some((n) => n.toLowerCase() === name.toLowerCase())) {
+          fontNotice = `"${name}" isn't among the fonts installed on this computer.`;
+        } else {
+          setPrefs({ font: `sys:${name}` });
+        }
+        render();
+        return;
+      }
+      if (act === 'add-web' && fontsBridge) {
+        const input = body.querySelector('#cp-webfont')?.value.trim();
+        if (!input) {
+          fontNotice = 'Type a font name or paste a link.';
+          render();
+          return;
+        }
+        fontBusy = true;
+        render();
+        try {
+          const font = await fontsBridge.add(input);
+          await refreshWebFonts();
+          setPrefs({ font: `web:${font.id}` });
+        } catch (e) {
+          fontNotice = message(e);
+        }
+        fontBusy = false;
+        render();
+        return;
+      }
+      if (act === 'use-web') {
+        setPrefs({ font: `web:${button.dataset.id}` });
+        render();
+        return;
+      }
+      if (act === 'remove-web' && fontsBridge) {
+        await fontsBridge.remove(button.dataset.id);
+        loadedWebFonts.delete(button.dataset.id);
+        await refreshWebFonts();
+        if (prefs.font === `web:${button.dataset.id}`) setPrefs({ font: DEFAULT_PREFS.font });
+        render();
+      }
+    }
+
     body.addEventListener('click', (e) => {
       const choice = e.target.closest('[data-set]');
       if (choice) {
@@ -1084,11 +1225,24 @@
         render();
         return;
       }
+      const act = e.target.closest('[data-act]');
+      if (act) {
+        fontAction(act.dataset.act, act);
+        return;
+      }
       if (e.target.closest('[data-canvas]')) {
         panel.hidden = true;
         canvasUI?.openPanel();
       }
     });
+    body.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || !e.target.classList.contains('cp-input')) return;
+      e.preventDefault();
+      if (e.target.id === 'cp-webfont') fontAction('add-web');
+      else if (e.target.id === 'cp-sysfont') fontAction('use-sys');
+    });
+    // The current imported font is needed as soon as the app starts, not only when the card opens
+    refreshWebFonts().then(() => applyPrefs());
     panel.querySelector('.cp-close').addEventListener('click', () => { panel.hidden = true; });
     panel.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') panel.hidden = true;

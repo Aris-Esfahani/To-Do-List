@@ -27,6 +27,14 @@ contextBridge.exposeInMainWorld('notepad', {
   setOnTop: (on) => ipcRenderer.send('notepad:on-top', Boolean(on)),
   onState: (callback) => ipcRenderer.on('notepad:state', (_event, state) => callback({ pinned: Boolean(state?.pinned), onTop: Boolean(state?.onTop) })),
 
+  // Imported writing fonts (see fonts.js): Google Fonts by name or link, or a link to a font file
+  fonts: {
+    list: () => ipcRenderer.invoke('fonts:list'),
+    add: (input) => ipcRenderer.invoke('fonts:add', String(input ?? '')),
+    remove: (id) => ipcRenderer.invoke('fonts:remove', String(id)),
+    data: (id) => ipcRenderer.invoke('fonts:data', String(id)),
+  },
+
   // Canvas integration (see canvas.js). Each call resolves with the result or rejects with a
   // plain message to show the user. onState delivers the full state after every change.
   canvas: {
