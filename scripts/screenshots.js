@@ -11,16 +11,16 @@ const ROOT = path.join(__dirname, '..');
 const OUT = path.join(ROOT, 'docs');
 const PREFIX = 'kitchen-notepad:v1:';
 
-// Sample pages so the shots aren't blank
+// Sample pages so the shots aren't blank: [text, done?]
 const PAGES = {
-  notes: 'Olive oil, lemons, parmesan\nAsk Sam about Saturday\nRenew library card',
-  mon: 'Gym at 6\nReply to Priya',
-  tue: 'Lab report draft',
-  wed: 'Dentist 2:30\nPick up prescription',
-  thu: 'Study group · library',
-  fri: 'Clean the kitchen\nMovie night',
-  sat: 'Farmers market',
-  sun: 'Plan next week',
+  notes: [['Olive oil, lemons, parmesan'], ['Ask Sam about Saturday'], ['Renew library card', true]],
+  mon: [['Reply to Priya'], ['Book dentist'], ['Gym at 6', true]],
+  tue: [['Lab report draft']],
+  wed: [['Dentist 2:30'], ['Pick up prescription']],
+  thu: [['Study group · library']],
+  fri: [['Clean the kitchen'], ['Movie night']],
+  sat: [['Farmers market']],
+  sun: [['Plan next week']],
 };
 
 const BACKDROPS = {
@@ -44,12 +44,10 @@ app.whenReady().then(async () => {
   const load = () => win.loadFile(path.join(ROOT, 'index.html'), { query: { desktop: '1' } });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // The app saves every page's text when the window unloads, so the sample text has to be
-  // typed into the pages (not just written to storage) before the reload that applies a shot's
-  // theme and page.
-  const fill = `
-    ${Object.entries(PAGES).map(([id, text]) => `{ const t = document.querySelector('#page-${id} textarea'); t.value = ${JSON.stringify(text)}; t.dispatchEvent(new Event('input')); }`).join('\n')}
-  `;
+  // Storage is written while the page is loaded (same origin), then the page is reloaded so the
+  // app starts from it. The app only saves pages that changed, so the reload doesn't undo this.
+  const seed = Object.entries(PAGES).map(([id, lines]) =>
+    `localStorage.setItem(${JSON.stringify(`${PREFIX}page:${id}`)}, ${JSON.stringify(JSON.stringify({ items: lines.map(([t, d]) => ({ t, d: Boolean(d) })) }))});`).join('\n');
 
   const shots = [
     { name: 'light', theme: 'light', page: 'mon' },
@@ -59,17 +57,13 @@ app.whenReady().then(async () => {
   await js('localStorage.clear()');
   for (const shot of shots) {
     await js(`
-      ${fill}
-      localStorage.setItem(${JSON.stringify(PREFIX + 'prefs')}, JSON.stringify({ theme: ${JSON.stringify(shot.theme)}, font: 'hand', scale: 100 }));
-      localStorage.setItem(${JSON.stringify(PREFIX + 'current')}, ${JSON.stringify(shot.page)});
+      ${seed}
+      localStorage.setItem(${JSON.stringify(`${PREFIX}prefs`)}, JSON.stringify({ theme: ${JSON.stringify(shot.theme)}, font: 'hand', scale: 100, marks: 'strike' }));
+      localStorage.setItem(${JSON.stringify(`${PREFIX}current`)}, ${JSON.stringify(shot.page)});
     `);
     await load();
     await js(`document.body.style.background = ${JSON.stringify(BACKDROPS[shot.theme])}; document.fonts.ready`);
     await wait(900);
-    if (process.env.DEBUG) {
-      console.log('keys:', await js(`JSON.stringify(Object.keys(localStorage))`));
-      console.log('mon textarea:', await js(`JSON.stringify(document.querySelector('#page-mon textarea')?.value)`));
-    }
     const image = await win.webContents.capturePage();
     const file = path.join(OUT, `notepad-${shot.name}.png`);
     fs.writeFileSync(file, image.toPNG());

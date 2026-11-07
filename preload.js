@@ -20,9 +20,10 @@ contextBridge.exposeInMainWorld('notepad', {
   onMoved: (callback) => ipcRenderer.on('notepad:moved', () => callback()),
   // 'start' / 'end' of dragging the resize grip
   resize: (phase) => ipcRenderer.send('notepad:resize', String(phase)),
-  // Pinned = kept in front of other apps and locked in place
+  // Pinned = locked in place (and in front). onTop = kept in front of other apps even when unpinned.
   setPinned: (on) => ipcRenderer.send('notepad:pin', Boolean(on)),
-  onPinned: (callback) => ipcRenderer.on('notepad:pinned', (_event, on) => callback(Boolean(on))),
+  setOnTop: (on) => ipcRenderer.send('notepad:on-top', Boolean(on)),
+  onState: (callback) => ipcRenderer.on('notepad:state', (_event, state) => callback({ pinned: Boolean(state?.pinned), onTop: Boolean(state?.onTop) })),
 
   // Canvas integration (see canvas.js). Each call resolves with the result or rejects with a
   // plain message to show the user. onState delivers the full state after every change.

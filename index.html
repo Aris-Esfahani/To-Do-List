@@ -14,6 +14,14 @@
   <script src="app.js" defer></script>
 </head>
 <body>
+  <!-- Crumple effect for deleting a notes page: app.js turns the displacement up over a second -->
+  <svg class="defs" aria-hidden="true" focusable="false">
+    <filter id="crumple" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="3" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="0" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
+
   <main class="scene">
     <h1 class="sr-only">Notepad</h1>
 

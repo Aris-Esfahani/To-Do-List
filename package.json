@@ -1,7 +1,7 @@
 {
   "name": "notepad",
   "productName": "Notepad",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A minimal, lightweight to-do list that sits on your desktop like a paper notepad, with your Canvas assignments on it.",
   "author": "Aris Esfahani",
   "license": "MIT",

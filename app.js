@@ -4,7 +4,8 @@
 
   // Running inside the desktop app? (main.js loads the page with ?desktop=1)
   const isDesktop = new URLSearchParams(location.search).has('desktop');
-  if (isDesktop) document.documentElement.classList.add('is-desktop');
+  const root = document.documentElement;
+  if (isDesktop) root.classList.add('is-desktop');
 
   // Kept from the app's first name so pages written before the rename still load.
   const STORAGE_PREFIX = 'kitchen-notepad:v1:';
@@ -15,6 +16,17 @@
     set(key, value) {
       try { localStorage.setItem(STORAGE_PREFIX + key, value); } catch { /* storage unavailable: keep working in memory */ }
     },
+    remove(key) {
+      try { localStorage.removeItem(STORAGE_PREFIX + key); } catch { /* fine */ }
+    },
+  };
+  const readJSON = (key, fallback) => {
+    try {
+      const raw = store.get(key);
+      return raw == null ? fallback : JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
   };
 
   // The page flip is the point of the desktop app, so it always plays there (Windows reports
@@ -23,67 +35,136 @@
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const shouldAnimate = () => isDesktop || !reducedMotion.matches;
 
-  /* ---------- This week's dates (Monday first) ---------- */
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const uid = () => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+  /* ---------- Preferences: appearance, writing font, list style ---------- */
+
+  const FONTS = {
+    hand: { label: 'Handwritten', family: 'var(--hand)', ratio: 0.82 },
+    serif: { label: 'Serif', family: 'var(--serif)', ratio: 0.6 },
+    sans: { label: 'Sans', family: '"Segoe UI", system-ui, sans-serif', ratio: 0.58 },
+    mono: { label: 'Mono', family: '"Cascadia Mono", Consolas, monospace', ratio: 0.55 },
+  };
+  const THEMES = { system: 'System', light: 'Light', dark: 'Dark' };
+  const MARKS = { strike: 'Cross out', checkbox: 'Checkboxes', numbered: 'Numbered' };
+  const SCALE = { min: 70, max: 160, step: 10 };
+  const DEFAULT_PREFS = { theme: 'system', font: 'hand', scale: 100, marks: 'strike', notesExpanded: true };
+
+  let prefs = { ...DEFAULT_PREFS, ...readJSON('prefs', {}) };
+  if (!FONTS[prefs.font]) prefs.font = DEFAULT_PREFS.font;
+  if (!THEMES[prefs.theme]) prefs.theme = DEFAULT_PREFS.theme;
+  if (!MARKS[prefs.marks]) prefs.marks = DEFAULT_PREFS.marks;
+  prefs.scale = Math.min(SCALE.max, Math.max(SCALE.min, Number(prefs.scale) || 100));
+  prefs.notesExpanded = prefs.notesExpanded !== false;
+
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+  function applyPrefs() {
+    const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && systemDark.matches);
+    root.dataset.theme = dark ? 'dark' : 'light';
+    root.dataset.marks = prefs.marks;
+    const font = FONTS[prefs.font];
+    root.style.setProperty('--write-font', font.family);
+    root.style.setProperty('--write-ratio', String(font.ratio));
+    root.style.setProperty('--text-scale', String(prefs.scale / 100));
+  }
+  function setPrefs(patch) {
+    prefs = { ...prefs, ...patch };
+    store.set('prefs', JSON.stringify(prefs));
+    applyPrefs();
+  }
+  systemDark.addEventListener('change', applyPrefs);
+  applyPrefs();
+
+  /* ---------- This week's dates (Monday first); re-checked so the pad stays current overnight ---------- */
 
   const addDays = (date, n) => {
     const d = new Date(date);
     d.setDate(d.getDate() + n);
     return d;
   };
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayOffset = (today.getDay() + 6) % 7;
-  const monday = addDays(today, -todayOffset);
-
   const fmt = (options) => new Intl.DateTimeFormat(undefined, options);
   const shortDay = fmt({ weekday: 'short' });
   const longDay = fmt({ weekday: 'long' });
   const monthDay = fmt({ month: 'long', day: 'numeric' });
   const shortDate = fmt({ month: 'short', day: 'numeric' });
-
+  const timeFmt = fmt({ hour: 'numeric', minute: '2-digit' });
   const DAY_IDS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-  const days = DAY_IDS.map((id, i) => {
-    const date = addDays(monday, i);
-    return {
-      id,
-      kind: 'day',
-      date,
-      isToday: i === todayOffset,
-      label: shortDay.format(date),
-      title: longDay.format(date),
-      sub: monthDay.format(date),
-    };
-  });
-  const sunday = days[6].date;
-  const weekRange = typeof shortDate.formatRange === 'function'
-    ? shortDate.formatRange(monday, sunday)
-    : `${shortDate.format(monday)} – ${shortDate.format(sunday)}`;
 
-  // Stack order, top sheet first: Notes, then the Week overview, then each day.
-  const pages = [
-    { id: 'notes', kind: 'notes', label: 'Notes', title: 'Notes', sub: 'Scratch pad' },
-    { id: 'week', kind: 'week', label: 'Week', title: 'This Week', sub: weekRange },
-    ...days,
-  ];
-  const COUNT = pages.length;
-  pages.forEach((p, i) => { p.index = i; });
+  function computeWeek() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const offset = (today.getDay() + 6) % 7;
+    const monday = addDays(today, -offset);
+    const days = DAY_IDS.map((id, i) => {
+      const date = addDays(monday, i);
+      return { id, kind: 'day', date, isToday: i === offset, label: shortDay.format(date), title: longDay.format(date), sub: monthDay.format(date) };
+    });
+    const sunday = days[6].date;
+    const range = typeof shortDate.formatRange === 'function'
+      ? shortDate.formatRange(monday, sunday)
+      : `${shortDate.format(monday)} – ${shortDate.format(sunday)}`;
+    return { days, range, key: today.toDateString() };
+  }
+  let week = computeWeek();
 
-  const restingZ = (i) => 10 + (COUNT - i); // under the window buttons (z 45)
-  const liftedZ = (i) => 60 + (COUNT - i); // over everything while flipping
+  /* ---------- Note sections: the pages before the week overview ---------- */
 
-  /* ---------- Build the tabs and pages ---------- */
+  function loadSections() {
+    const list = readJSON('sections', null);
+    if (Array.isArray(list) && list.length && list.every((s) => s && typeof s.id === 'string' && typeof s.title === 'string')) {
+      return list.map((s) => ({ id: s.id, title: s.title }));
+    }
+    return [{ id: 'notes', title: 'Notes' }];
+  }
+  let sections = loadSections();
+  const saveSections = () => store.set('sections', JSON.stringify(sections));
+
+  /* ---------- What's written on a page: lines, each possibly crossed out ---------- */
+
+  function loadItems(id) {
+    const raw = store.get(`page:${id}`);
+    if (!raw) return [];
+    if (raw[0] === '{') {
+      try {
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.items)) return data.items.filter((i) => i && typeof i.t === 'string').map((i) => ({ t: i.t, d: Boolean(i.d) }));
+      } catch { /* fall through */ }
+    }
+    return raw.split('\n').map((t) => ({ t, d: false })); // pages from before lines could be crossed out
+  }
+  const storeItems = (id, items) => store.set(`page:${id}`, JSON.stringify({ items }));
+
+  /* ---------- Pages and tabs ---------- */
 
   const tablist = document.querySelector('.tabs');
   const pad = document.querySelector('.pad');
   const padShade = pad.querySelector('.pad-shade');
 
+  let pages = []; // stack order, top sheet first
+  let current = 0;
+  let busy = false;
+  let queued = null;
+  let groupTab = null;
+  let canvasUI = null; // set up below when the desktop bridge exists
+
+  const restingZ = (i) => 10 + (pages.length - i); // under the window buttons (z 45)
+  const liftedZ = (i) => 60 + (pages.length - i); // over everything while flipping
+  const pageById = (id) => pages.find((p) => p.id === id);
+  const pageOf = (node) => pages.find((p) => p.el.contains(node));
+
+  const ICON = {
+    pencil: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.5 2.5l2 2L5 13H3v-2z"/></svg>',
+    crumple: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l3 1 2-2 2 3 3-1-1 3 2 2-3 2 1 3-3-1-2 2-2-3-3 1 1-3-2-2 3-2z"/></svg>',
+  };
+
   const weekHTML = () => `
     <ol class="week">
-      ${days.map((d) => `
+      ${week.days.map((d) => `
         <li>
-          <button type="button" class="week-day${d.isToday ? ' is-today' : ''}" data-go="${d.index}">
+          <button type="button" class="week-day${d.isToday ? ' is-today' : ''}" data-go="${d.id}">
             <span class="week-date">
-              <span class="wd-name">${d.label}</span>
+              <span class="wd-name">${esc(d.label)}</span>
               <span class="wd-num">${d.date.getDate()}</span>
             </span>
             <span class="wd-body">
@@ -94,94 +175,171 @@
         </li>`).join('')}
     </ol>`;
 
-  const writeHTML = (p) =>
-    `<textarea class="write" aria-label="${p.title}" spellcheck="true"${p.kind === 'notes' ? ' placeholder="Jot anything down…"' : ''}></textarea>`;
+  // (Re)creates every sheet and tab from storage. Called at start, and whenever the sections
+  // or the date change.
+  function build(selectId) {
+    saveDirty();
+    for (const p of pages) p.el.remove();
+    pages = [
+      ...sections.map((s, i) => ({ id: s.id, kind: 'notes', label: s.title, title: s.title, sub: 'Notes', first: i === 0 })),
+      { id: 'week', kind: 'week', label: 'Week', title: 'This Week', sub: week.range },
+      ...week.days.map((d) => ({ ...d })),
+    ];
+    pages.forEach((p, i) => { p.index = i; });
 
-  for (const p of pages) {
-    const tab = document.createElement('button');
-    tab.type = 'button';
-    tab.className = 'tab' + (p.isToday ? ' is-today' : '');
-    tab.id = `tab-${p.id}`;
-    tab.setAttribute('role', 'tab');
-    tab.setAttribute('aria-controls', `page-${p.id}`);
-    tab.style.setProperty('--tab-color', `var(--tab-${p.id})`);
-    tab.innerHTML = `<span class="tab-label">${p.label}</span>${p.isToday ? '<span class="sr-only">, today</span>' : ''}`;
-    tab.addEventListener('click', () => goTo(p.index));
-    tablist.append(tab);
+    const frag = document.createDocumentFragment();
+    for (const p of pages) {
+      const page = document.createElement('section');
+      page.className = `page page--${p.kind}`;
+      page.id = `page-${p.id}`;
+      page.setAttribute('role', 'tabpanel');
+      page.style.zIndex = restingZ(p.index);
+      const sub = p.kind === 'notes'
+        ? `<button type="button" class="sub-btn" data-rename>${ICON.pencil}Rename</button><button type="button" class="sub-btn" data-crumple>${ICON.crumple}Crumple</button>`
+        : `<span>${esc(p.sub)}</span>${p.isToday ? '<span class="stamp">Today</span>' : ''}`;
+      page.innerHTML = `
+        <div class="face face--front">
+          <div class="drag-strip" aria-hidden="true"></div>
+          <header class="page-head">
+            <h2 class="page-title"${p.kind === 'notes' ? ' title="Double-click to rename"' : ''}>${esc(p.title)}</h2>
+            <p class="page-sub">${sub}</p>
+          </header>
+          ${p.kind === 'week' ? weekHTML() : `${p.kind === 'day' ? '<div class="due" hidden></div>' : ''}<div class="lines"></div>`}
+          ${p.index < pages.length - 1 ? '<button type="button" class="corner" tabindex="-1" aria-label="Next page"></button>' : ''}
+          <div class="face-shade"></div>
+        </div>
+        <div class="face face--back"><div class="face-shade"></div></div>`;
+      frag.append(page);
+      Object.assign(p, {
+        el: page,
+        front: page.querySelector('.face--front'),
+        back: page.querySelector('.face--back'),
+        shades: page.querySelectorAll('.face-shade'),
+        lines: page.querySelector('.lines'),
+        dirty: false,
+      });
+      if (p.lines) mountLines(p, loadItems(p.id));
+    }
+    pad.insertBefore(frag, padShade);
+    for (const p of pages) updatePreview(p);
 
-    const page = document.createElement('section');
-    page.className = `page page--${p.kind}`;
-    page.id = `page-${p.id}`;
-    page.setAttribute('role', 'tabpanel');
-    page.setAttribute('aria-labelledby', tab.id);
-    page.style.zIndex = restingZ(p.index);
-    page.innerHTML = `
-      <div class="face face--front">
-        <div class="drag-strip" aria-hidden="true"></div>
-        <header class="page-head">
-          <h2 class="page-title">${p.title}</h2>
-          <p class="page-sub"><span>${p.sub}</span>${p.isToday ? '<span class="stamp">Today</span>' : ''}</p>
-        </header>
-        ${p.kind === 'week' ? weekHTML() : `${p.kind === 'day' ? '<div class="due" hidden></div>' : ''}${writeHTML(p)}`}
-        ${p.index < COUNT - 1 ? '<button type="button" class="corner" tabindex="-1" aria-label="Next page"></button>' : ''}
-        <div class="face-shade"></div>
-      </div>
-      <div class="face face--back"><div class="face-shade"></div></div>`;
-    pad.insertBefore(page, padShade);
-
-    Object.assign(p, {
-      tab,
-      el: page,
-      front: page.querySelector('.face--front'),
-      back: page.querySelector('.face--back'),
-      shades: page.querySelectorAll('.face-shade'),
-      textarea: page.querySelector('textarea'),
-    });
+    const idx = pages.findIndex((p) => p.id === selectId);
+    current = idx >= 0 ? idx : 0;
+    renderTabs();
+    settle();
+    canvasUI?.render();
   }
 
-  /* ---------- Writing + saving ---------- */
+  // Index tabs: a Notes group (one tab, or expanded into a tab per section plus "+"), then
+  // Week and the days.
+  function renderTabs() {
+    tablist.innerHTML = '';
+    const multi = sections.length > 1;
+    const expanded = multi && prefs.notesExpanded;
 
-  const updatePreview = (p) => {
-    if (p.kind !== 'day') return;
-    const lines = p.textarea.value.split('\n').map((s) => s.trim()).filter(Boolean);
-    pad.querySelector(`[data-preview="${p.id}"]`).textContent = lines.join(' · ');
-  };
-
-  for (const p of pages) {
-    if (!p.textarea) continue;
-    const key = `page:${p.id}`;
-    p.textarea.value = store.get(key) ?? '';
-    updatePreview(p);
-
-    let timer = 0;
-    const save = () => {
-      clearTimeout(timer);
-      store.set(key, p.textarea.value);
-    };
-    p.textarea.addEventListener('input', () => {
-      updatePreview(p);
-      clearTimeout(timer);
-      timer = setTimeout(save, 300);
+    groupTab = document.createElement('div');
+    groupTab.className = 'tab tab--group';
+    groupTab.setAttribute('role', 'tab');
+    groupTab.tabIndex = -1;
+    groupTab.style.setProperty('--tab-color', 'var(--tab-notes)');
+    const chevTitle = multi ? (expanded ? 'Collapse the notes pages' : 'Show the notes pages') : 'Add a notes page';
+    groupTab.innerHTML = `<span class="tab-label">Notes</span><button type="button" class="tab-chev" title="${chevTitle}" aria-label="${chevTitle}">${multi ? (expanded ? '▾' : '▸') : '+'}</button>`;
+    groupTab.addEventListener('click', (e) => {
+      if (e.target.closest('.tab-chev')) {
+        if (multi) {
+          setPrefs({ notesExpanded: !prefs.notesExpanded });
+          renderTabs();
+        } else {
+          addSection();
+        }
+        return;
+      }
+      const cur = pages[current];
+      goTo(cur.kind === 'notes' ? cur.index : 0);
     });
-    p.textarea.addEventListener('blur', save);
-    window.addEventListener('pagehide', save);
+    groupTab.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        goTo(pages[current].kind === 'notes' ? current : 0);
+      }
+    });
+    tablist.append(groupTab);
+
+    for (const p of pages) {
+      if (p.kind === 'notes') {
+        p.tab = null;
+        if (!expanded) continue;
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = 'tab tab--sub';
+        tab.id = `tab-${p.id}`;
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-controls', `page-${p.id}`);
+        tab.style.setProperty('--tab-color', `var(--tab-sub-${p.index % 3})`);
+        tab.innerHTML = `<span class="tab-label">${esc(p.label)}</span>`;
+        tab.addEventListener('click', () => goTo(p.index));
+        tablist.append(tab);
+        p.tab = tab;
+        continue;
+      }
+      if (p.kind === 'week' && expanded) {
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'tab tab--sub tab--add';
+        add.title = 'Add a notes page';
+        add.setAttribute('aria-label', 'Add a notes page');
+        add.textContent = '+';
+        add.addEventListener('click', addSection);
+        tablist.append(add);
+      }
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = `tab${p.kind === 'week' ? ' tab--week' : ''}${p.isToday ? ' is-today' : ''}`;
+      tab.id = `tab-${p.id}`;
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-controls', `page-${p.id}`);
+      tab.style.setProperty('--tab-color', `var(--tab-${p.id})`);
+      tab.innerHTML = `<span class="tab-label">${esc(p.label)}</span>${p.isToday ? '<span class="sr-only">, today</span>' : ''}`;
+      tab.addEventListener('click', () => goTo(p.index));
+      tablist.append(tab);
+      p.tab = tab;
+    }
+    updateTabState(current);
   }
+
+  function updateTabState(index) {
+    const target = pages[index];
+    const expanded = sections.length > 1 && prefs.notesExpanded;
+    for (const t of tablist.querySelectorAll('[role="tab"]')) {
+      t.classList.remove('is-active');
+      t.setAttribute('aria-selected', 'false');
+      t.tabIndex = -1;
+    }
+    const tab = target.kind === 'notes' ? (target.tab ?? groupTab) : target.tab;
+    tab.classList.add('is-active');
+    tab.setAttribute('aria-selected', 'true');
+    tab.tabIndex = 0;
+    if (target.kind === 'notes') groupTab.classList.add('is-active');
+    groupTab.querySelector('.tab-label').textContent = sections.length > 1 && !expanded && target.kind === 'notes' ? target.title : 'Notes';
+    groupTab.setAttribute('aria-controls', `page-${target.kind === 'notes' ? target.id : sections[0].id}`);
+  }
+
+  tablist.addEventListener('keydown', (e) => {
+    const tabs = [...tablist.querySelectorAll('[role="tab"]')];
+    const from = tabs.indexOf(document.activeElement);
+    if (from < 0) return;
+    let to = null;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') to = Math.min(tabs.length - 1, from + 1);
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') to = Math.max(0, from - 1);
+    else if (e.key === 'Home') to = 0;
+    else if (e.key === 'End') to = tabs.length - 1;
+    if (to === null) return;
+    e.preventDefault();
+    tabs[to].focus();
+    tabs[to].click();
+  });
 
   /* ---------- Flipping ---------- */
-
-  const saved = pages.findIndex((p) => p.id === store.get('current'));
-  let current = saved >= 0 ? saved : 0;
-  let busy = false;
-  let queued = null;
-
-  function selectTab(index) {
-    for (const p of pages) {
-      const on = p.index === index;
-      p.tab.classList.toggle('is-active', on);
-      p.tab.setAttribute('aria-selected', String(on));
-      p.tab.tabIndex = on ? 0 : -1;
-    }
-  }
 
   // Put every sheet in its resting place for the current page.
   function settle() {
@@ -189,7 +347,7 @@
       p.el.classList.toggle('is-flipped', p.index < current);
       p.el.inert = p.index !== current;
     }
-    selectTab(current);
+    updateTabState(current);
     store.set('current', pages[current].id);
   }
 
@@ -236,10 +394,10 @@
   }
 
   function goTo(target) {
-    if (target < 0 || target >= COUNT) return;
+    if (target < 0 || target >= pages.length) return;
     if (busy) {
       queued = target;
-      selectTab(target);
+      updateTabState(target);
       return;
     }
     if (target === current) return;
@@ -250,7 +408,7 @@
     }
 
     busy = true;
-    selectTab(target);
+    updateTabState(target);
 
     const up = target > current;
     const order = [];
@@ -287,67 +445,409 @@
     });
   }
 
-  /* ---------- Input ---------- */
+  /* ---------- Writing: one editable line per item; crossed-out lines sink to the bottom ---------- */
 
-  tablist.addEventListener('keydown', (e) => {
-    const from = pages.findIndex((p) => p.tab === document.activeElement);
-    if (from < 0) return;
-    let to = null;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') to = Math.min(COUNT - 1, from + 1);
-    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') to = Math.max(0, from - 1);
-    else if (e.key === 'Home') to = 0;
-    else if (e.key === 'End') to = COUNT - 1;
-    if (to === null) return;
-    e.preventDefault();
-    pages[to].tab.focus();
-    goTo(to);
+  function makeLine(text, done, p) {
+    const line = document.createElement('div');
+    line.className = 'line';
+    line.dataset.done = String(Boolean(done));
+    line.innerHTML = `<button type="button" class="mark" tabindex="-1" aria-label="${done ? 'Un-cross this line' : 'Cross this line out'}"></button><div class="text" contenteditable="plaintext-only" spellcheck="true"${p.first ? ' data-placeholder="Jot anything down…"' : ''}></div>`;
+    line.querySelector('.text').textContent = text;
+    return line;
+  }
+
+  function mountLines(p, items) {
+    const list = items.length ? items : [{ t: '', d: false }];
+    const ordered = [...list.filter((i) => !i.d), ...list.filter((i) => i.d)];
+    p.lines.replaceChildren(...ordered.map((i) => makeLine(i.t, i.d, p)));
+  }
+
+  const textOf = (line) => line.querySelector('.text');
+  const itemsOf = (p) => [...p.lines.children].map((l) => ({ t: textOf(l).textContent, d: l.dataset.done === 'true' }));
+
+  const saveTimers = new Map();
+  function savePage(p) {
+    if (!p.lines) return;
+    clearTimeout(saveTimers.get(p));
+    const items = itemsOf(p);
+    while (items.length && !items[items.length - 1].t && !items[items.length - 1].d) items.pop();
+    storeItems(p.id, items);
+    p.dirty = false;
+    updatePreview(p);
+  }
+  function scheduleSave(p) {
+    p.dirty = true;
+    clearTimeout(saveTimers.get(p));
+    saveTimers.set(p, setTimeout(() => savePage(p), 300));
+  }
+  function saveDirty() {
+    for (const p of pages) if (p.dirty) savePage(p);
+  }
+  window.addEventListener('pagehide', saveDirty);
+
+  function updatePreview(p) {
+    if (p.kind !== 'day') return;
+    const el = pad.querySelector(`[data-preview="${p.id}"]`);
+    if (el) el.textContent = itemsOf(p).filter((i) => !i.d && i.t.trim()).map((i) => i.t.trim()).join(' · ');
+  }
+
+  // Caret position inside a line's text, as a character offset
+  function caretOffset(el) {
+    const sel = document.getSelection();
+    if (!sel?.rangeCount || !el.contains(sel.anchorNode)) return el.textContent.length;
+    const range = sel.getRangeAt(0);
+    const pre = range.cloneRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(range.startContainer, range.startOffset);
+    return pre.toString().length;
+  }
+
+  function setCaret(el, offset) {
+    el.focus();
+    const sel = document.getSelection();
+    const range = document.createRange();
+    let remaining = Math.max(0, Math.min(offset, el.textContent.length));
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      if (remaining <= node.length) {
+        range.setStart(node, remaining);
+        break;
+      }
+      remaining -= node.length;
+      node = walker.nextNode();
+    }
+    if (!node) range.setStart(el, el.childNodes.length);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  // Moves a line to a new place in its list, sliding the lines in between out of the way
+  function moveLine(container, line, before) {
+    if ((before === null && container.lastElementChild === line) || (before && line.nextElementSibling === before) || before === line) return;
+    const kids = [...container.children];
+    const tops = new Map(kids.map((l) => [l, l.getBoundingClientRect().top]));
+    container.insertBefore(line, before);
+    if (!shouldAnimate()) return;
+    for (const l of kids) {
+      const dy = tops.get(l) - l.getBoundingClientRect().top;
+      if (dy) l.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 300, easing: 'cubic-bezier(.3, .7, .3, 1)' });
+    }
+  }
+
+  const firstDone = (container, except) => [...container.querySelectorAll('.line[data-done="true"]')].find((l) => l !== except) ?? null;
+
+  function toggleDone(line) {
+    const p = pageOf(line);
+    if (!p) return;
+    const done = line.dataset.done !== 'true';
+    line.dataset.done = String(done);
+    line.querySelector('.mark').setAttribute('aria-label', done ? 'Un-cross this line' : 'Cross this line out');
+    if (done) moveLine(p.lines, line, null); // crossed out: down to the bottom
+    else moveLine(p.lines, line, firstDone(p.lines, line)); // back up, after the lines still to do
+    scheduleSave(p);
+  }
+
+  pad.addEventListener('mousedown', (e) => {
+    const lines = e.target.closest('.lines');
+    if (!lines || e.target.closest('.line')) return;
+    e.preventDefault(); // clicked the empty paper below the last line: write there
+    const last = lines.lastElementChild;
+    if (last) setCaret(textOf(last), textOf(last).textContent.length);
   });
 
-  pad.addEventListener('click', (e) => {
-    const day = e.target.closest('[data-go]');
-    if (day) {
-      goTo(Number(day.dataset.go));
+  pad.addEventListener('input', (e) => {
+    const text = e.target.closest?.('.text');
+    if (!text) return;
+    if (!text.textContent) text.innerHTML = ''; // Chromium leaves a <br> behind; keep the placeholder working
+    scheduleSave(pageOf(text));
+  });
+
+  pad.addEventListener('focusout', (e) => {
+    const text = e.target.closest?.('.text');
+    const p = text && pageOf(text);
+    if (p?.dirty) savePage(p);
+  });
+
+  pad.addEventListener('keydown', (e) => {
+    const text = e.target.closest?.('.text');
+    if (!text) return;
+    const line = text.closest('.line');
+    const p = pageOf(text);
+    const sel = document.getSelection();
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        toggleDone(line);
+        return;
+      }
+      const pos = caretOffset(text);
+      const full = text.textContent;
+      text.textContent = full.slice(0, pos);
+      const next = makeLine(full.slice(pos), false, p);
+      line.after(next);
+      if (line.dataset.done === 'true') moveLine(p.lines, next, firstDone(p.lines, next)); // new lines are things to do
+      setCaret(textOf(next), 0);
+      scheduleSave(p);
       return;
     }
-    if (e.target.closest('.corner')) goTo(current + 1);
+    if (e.key === 'Backspace' && sel.isCollapsed && caretOffset(text) === 0) {
+      const prev = line.previousElementSibling;
+      if (!prev) return;
+      e.preventDefault();
+      const ptext = textOf(prev);
+      const at = ptext.textContent.length;
+      ptext.textContent += text.textContent;
+      line.remove();
+      setCaret(ptext, at);
+      scheduleSave(p);
+      return;
+    }
+    if (e.key === 'Delete' && sel.isCollapsed && caretOffset(text) === text.textContent.length) {
+      const next = line.nextElementSibling;
+      if (!next) return;
+      e.preventDefault();
+      const at = text.textContent.length;
+      text.textContent += textOf(next).textContent;
+      next.remove();
+      setCaret(text, at);
+      scheduleSave(p);
+      return;
+    }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const sibling = e.key === 'ArrowUp' ? line.previousElementSibling : line.nextElementSibling;
+      if (!sibling) return;
+      e.preventDefault();
+      setCaret(textOf(sibling), caretOffset(text));
+      return;
+    }
+    if (e.key === 'Tab') e.preventDefault();
   });
+
+  pad.addEventListener('paste', (e) => {
+    const text = e.target.closest?.('.text');
+    if (!text) return;
+    e.preventDefault();
+    const parts = (e.clipboardData.getData('text/plain') || '').replace(/\r/g, '').split('\n');
+    const p = pageOf(text);
+    if (parts.length === 1) {
+      document.execCommand('insertText', false, parts[0]);
+      return;
+    }
+    // Several lines: the first joins this line, the rest become lines below it
+    const pos = caretOffset(text);
+    const full = text.textContent;
+    text.textContent = full.slice(0, pos) + parts[0];
+    let after = text.closest('.line');
+    for (const part of parts.slice(1, -1)) {
+      const nl = makeLine(part, false, p);
+      after.after(nl);
+      after = nl;
+    }
+    const last = makeLine(parts[parts.length - 1] + full.slice(pos), false, p);
+    after.after(last);
+    setCaret(textOf(last), parts[parts.length - 1].length);
+    scheduleSave(p);
+  });
+
+  /* ---------- Sections: add, rename, crumple ---------- */
+
+  function addSection() {
+    saveDirty();
+    const id = uid();
+    sections.push({ id, title: `Notes ${sections.length + 1}` });
+    saveSections();
+    if (!prefs.notesExpanded) setPrefs({ notesExpanded: true });
+    build(id);
+    startRename(pages[current]);
+  }
+
+  function startRename(p) {
+    const h = p.el.querySelector('.page-title');
+    if (p.kind !== 'notes' || h.isContentEditable) return;
+    const before = p.title;
+    let cancelled = false;
+    h.contentEditable = 'plaintext-only';
+    h.spellcheck = false;
+    h.classList.add('is-editing');
+    h.focus();
+    document.getSelection()?.selectAllChildren(h);
+    const onKey = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        h.blur();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelled = true;
+        h.blur();
+      }
+    };
+    h.addEventListener('keydown', onKey);
+    h.addEventListener('blur', () => {
+      h.removeEventListener('keydown', onKey);
+      h.contentEditable = 'false';
+      h.classList.remove('is-editing');
+      const title = cancelled ? before : (h.textContent.replace(/\s+/g, ' ').trim().slice(0, 28) || before);
+      h.textContent = title;
+      if (title !== before) {
+        p.title = title;
+        p.label = title;
+        const s = sections.find((x) => x.id === p.id);
+        if (s) s.title = title;
+        saveSections();
+        renderTabs();
+      }
+    }, { once: true });
+  }
+
+  function askCrumple(p) {
+    const sub = p.el.querySelector('.page-sub');
+    p.subHTML ??= sub.innerHTML;
+    sub.innerHTML = `<span class="sub-ask">${sections.length > 1 ? 'Crumple this page?' : 'Crumple it and start fresh?'}</span><button type="button" class="sub-btn sub-btn--danger" data-crumple-yes>Crumple</button><button type="button" class="sub-btn" data-crumple-no>Keep</button>`;
+  }
+
+  function restoreSub(p) {
+    if (p.subHTML) p.el.querySelector('.page-sub').innerHTML = p.subHTML;
+  }
+
+  // Balls the page up and drops it, then removes the section (or wipes it clean if it's the last one)
+  async function crumple(p) {
+    if (p.crumpling) return;
+    p.crumpling = true;
+    clearTimeout(saveTimers.get(p));
+    p.dirty = false; // its notes are going; don't save them on the way out
+
+    if (shouldAnimate()) {
+      const el = p.el;
+      el.style.zIndex = liftedZ(p.index);
+      el.style.filter = 'url(#crumple)';
+      const map = document.querySelector('#crumple feDisplacementMap');
+      const DUR = 1000;
+      const t0 = performance.now();
+      const wobble = (t) => {
+        const k = Math.min(1, (t - t0) / DUR);
+        map?.setAttribute('scale', String(Math.round(k * 80)));
+        if (k < 1) requestAnimationFrame(wobble);
+      };
+      requestAnimationFrame(wobble);
+      p.front.animate([{ borderRadius: '0.5cqw' }, { borderRadius: '0.5cqw', offset: 0.3 }, { borderRadius: '45%' }], { duration: DUR, fill: 'forwards' });
+      const fall = el.animate([
+        { transform: 'none', opacity: 1 },
+        { transform: 'rotate(-3deg) scale(0.93)', opacity: 1, offset: 0.3 },
+        { transform: 'rotate(9deg) scale(0.55) translateY(8%)', opacity: 1, offset: 0.65 },
+        { transform: 'rotate(26deg) scale(0.2) translateY(150%)', opacity: 0 },
+      ], { duration: DUR, easing: 'cubic-bezier(.45, 0, .75, .35)', fill: 'forwards' });
+      await fall.finished.catch(() => {});
+      map?.setAttribute('scale', '0');
+    }
+
+    const i = sections.findIndex((s) => s.id === p.id);
+    store.remove(`page:${p.id}`);
+    let nextId;
+    if (sections.length === 1) {
+      sections[0].title = 'Notes';
+      nextId = sections[0].id;
+    } else {
+      sections.splice(i, 1);
+      nextId = sections[Math.min(i, sections.length - 1)].id;
+    }
+    saveSections();
+    build(nextId);
+  }
+
+  pad.addEventListener('click', (e) => {
+    const go = e.target.closest('[data-go]');
+    if (go) {
+      const p = pageById(go.dataset.go);
+      if (p) goTo(p.index);
+      return;
+    }
+    if (e.target.closest('.corner')) {
+      goTo(current + 1);
+      return;
+    }
+    const mark = e.target.closest('.mark');
+    if (mark) {
+      toggleDone(mark.closest('.line'));
+      return;
+    }
+    const p = pageOf(e.target);
+    if (!p) return;
+    if (e.target.closest('[data-rename]')) startRename(p);
+    else if (e.target.closest('[data-crumple]')) askCrumple(p);
+    else if (e.target.closest('[data-crumple-yes]')) crumple(p);
+    else if (e.target.closest('[data-crumple-no]')) restoreSub(p);
+  });
+
+  pad.addEventListener('dblclick', (e) => {
+    const title = e.target.closest('.page-title');
+    const p = title && pageOf(title);
+    if (p?.kind === 'notes' && !title.isContentEditable) startRename(p);
+  });
+
+  /* ---------- Keep the dates right: the app lives in the tray for days at a time ---------- */
+
+  function checkDate() {
+    const next = computeWeek();
+    if (next.key === week.key) return;
+    week = next;
+    build(pages[current]?.id);
+  }
+  setInterval(checkDate, 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) checkDate();
+  });
+  window.addEventListener('focus', checkDate);
+
+  build(store.get('current') ?? sections[0].id);
 
   /* ---------- Desktop window: buttons, click-through, resize grip ---------- */
 
   const bridge = isDesktop ? window.notepad : null;
-  let canvasUI = null; // set up below when the desktop bridge exists
+  const desktop = { pinned: false, onTop: false };
+
   if (bridge) {
     document.querySelector('.win-controls').addEventListener('click', (e) => {
       const button = e.target.closest('[data-win]');
       if (button) bridge.window(button.dataset.win);
     });
 
-    // Clicks on the empty, transparent space around the clipboard fall through to the desktop.
+    // Clicks on the empty, transparent space around the pad fall through to the desktop. The
+    // window turns solid as soon as the pointer comes near the pad or the tabs (not only once
+    // it's over them), so a quick press right after arriving can't slip through.
+    const clipboard = document.querySelector('.clipboard');
+    const MARGIN = 12;
+    const near = (r, x, y) => x >= r.left - MARGIN && x <= r.right + MARGIN && y >= r.top - MARGIN && y <= r.bottom + MARGIN;
     let passThrough = null;
     const setPassThrough = (on) => {
       if (on === passThrough) return;
       passThrough = on;
       bridge.setPassThrough(on);
     };
-    document.addEventListener('mousemove', (e) => setPassThrough(!e.target.closest('.clipboard')), { passive: true });
+    document.addEventListener('mousemove', (e) => {
+      const inside = e.target.closest?.('.clipboard') || near(clipboard.getBoundingClientRect(), e.clientX, e.clientY) || near(tablist.getBoundingClientRect(), e.clientX, e.clientY);
+      setPassThrough(!inside);
+    }, { passive: true });
     setPassThrough(true);
 
-    const root = document.documentElement;
-    let pinned = false;
     const pinButton = document.querySelector('[data-pin]');
-    pinButton.addEventListener('click', () => bridge.setPinned(!pinned));
-    bridge.onPinned((on) => {
-      pinned = on;
-      root.classList.toggle('is-pinned', on);
-      pinButton.setAttribute('aria-pressed', String(on));
-      pinButton.title = on ? 'Unpin (let it move again)' : 'Pin in place, in front of other apps';
+    pinButton.addEventListener('click', () => bridge.setPinned(!desktop.pinned));
+    bridge.onState((state) => {
+      desktop.pinned = Boolean(state.pinned);
+      desktop.onTop = Boolean(state.onTop);
+      root.classList.toggle('is-pinned', desktop.pinned);
+      pinButton.setAttribute('aria-pressed', String(desktop.pinned));
+      pinButton.title = desktop.pinned ? 'Unpin (let it move again)' : 'Pin in place, in front of other apps';
       pinButton.setAttribute('aria-label', pinButton.title);
+      settingsUI.render();
     });
 
     const grip = document.querySelector('.resize-grip');
     const endResize = () => bridge.resize('end');
     grip.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || pinned) return;
+      if (e.button !== 0 || desktop.pinned) return;
       grip.setPointerCapture(e.pointerId);
       bridge.resize('start');
     });
@@ -386,7 +886,7 @@
     };
     bridge.onMoved(finish);
     document.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || pinned) return;
+      if (e.button !== 0 || desktop.pinned) return;
       if (!e.target.closest('.tabs, .week')) return;
       press = { x: e.screenX, y: e.screenY, dx: 0, dy: 0, moving: false, target: e.target, id: e.pointerId };
     });
@@ -425,49 +925,16 @@
     canvasUI = setupCanvas(bridge.canvas);
   }
 
-  setupSettings();
+  const settingsUI = setupSettings();
 
-  /* ---------- Settings: appearance, writing font, Canvas entry point ---------- */
+  /* ---------- Settings card ---------- */
 
   function setupSettings() {
-    const root = document.documentElement;
-    const FONTS = {
-      hand: { label: 'Handwritten', family: 'var(--hand)', ratio: 0.82 },
-      serif: { label: 'Serif', family: 'var(--serif)', ratio: 0.6 },
-      sans: { label: 'Sans', family: '"Segoe UI", system-ui, sans-serif', ratio: 0.58 },
-      mono: { label: 'Mono', family: '"Cascadia Mono", Consolas, monospace', ratio: 0.55 },
-    };
-    const THEMES = { system: 'System', light: 'Light', dark: 'Dark' };
-    const SCALE = { min: 70, max: 160, step: 10 };
-    const defaults = { theme: 'system', font: 'hand', scale: 100 };
-
-    let prefs = { ...defaults };
-    try {
-      prefs = { ...defaults, ...JSON.parse(store.get('prefs') ?? '{}') };
-    } catch { /* keep defaults */ }
-    if (!FONTS[prefs.font]) prefs.font = defaults.font;
-    if (!THEMES[prefs.theme]) prefs.theme = defaults.theme;
-    prefs.scale = Math.min(SCALE.max, Math.max(SCALE.min, Number(prefs.scale) || 100));
-
-    const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
-
-    function apply() {
-      const dark = prefs.theme === 'dark' || (prefs.theme === 'system' && systemDark.matches);
-      root.dataset.theme = dark ? 'dark' : 'light';
-      const font = FONTS[prefs.font];
-      root.style.setProperty('--write-font', font.family);
-      root.style.setProperty('--write-ratio', String(font.ratio));
-      root.style.setProperty('--text-scale', String(prefs.scale / 100));
-    }
-    systemDark.addEventListener('change', apply);
-    apply();
-
     const panel = document.querySelector('.settings-panel');
     const body = panel.querySelector('.cp-body');
-    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const seg = (name, options, current) =>
+    const seg = (name, options, value) =>
       `<span class="cp-seg" role="group">${Object.entries(options).map(([k, label]) =>
-        `<button type="button" data-set="${name}" data-value="${k}" aria-pressed="${k === current}">${esc(label)}</button>`).join('')}</span>`;
+        `<button type="button" data-set="${name}" data-value="${k}" aria-pressed="${k === value}">${esc(label)}</button>`).join('')}</span>`;
 
     function render() {
       if (panel.hidden) return;
@@ -490,29 +957,35 @@
           </span>
         </div>
         <div class="cp-setting">
+          <span class="cp-label">List style</span>
+          ${seg('marks', MARKS, prefs.marks)}
+        </div>
+        ${bridge ? `
+        <div class="cp-setting">
+          <span class="cp-label">Keep in front of other apps</span>
+          ${seg('onTop', { off: 'Off', on: 'On' }, desktop.onTop ? 'on' : 'off')}
+        </div>` : ''}
+        <div class="cp-setting">
           <span class="cp-label">Canvas assignments</span>
           ${canvasUI
             ? `<span class="cp-stepper"><span class="cp-muted">${esc(canvasUI.summary())}</span><button type="button" class="cp-btn" data-canvas>Open…</button></span>`
             : '<span class="cp-muted">Available in the desktop app</span>'}
-        </div>`;
-    }
-
-    function set(patch) {
-      prefs = { ...prefs, ...patch };
-      store.set('prefs', JSON.stringify(prefs));
-      apply();
-      render();
+        </div>
+        <p class="cp-muted cp-hint">Tip: click the mark in the margin (or press Ctrl+Enter) to cross a line out. Crossed-out lines sink to the bottom.</p>`;
     }
 
     body.addEventListener('click', (e) => {
       const choice = e.target.closest('[data-set]');
       if (choice) {
-        set({ [choice.dataset.set]: choice.dataset.value });
+        if (choice.dataset.set === 'onTop') bridge?.setOnTop(choice.dataset.value === 'on');
+        else setPrefs({ [choice.dataset.set]: choice.dataset.value });
+        render();
         return;
       }
       const step = e.target.closest('[data-step]');
       if (step) {
-        set({ scale: Math.min(SCALE.max, Math.max(SCALE.min, prefs.scale + Number(step.dataset.step) * SCALE.step)) });
+        setPrefs({ scale: Math.min(SCALE.max, Math.max(SCALE.min, prefs.scale + Number(step.dataset.step) * SCALE.step)) });
+        render();
         return;
       }
       if (e.target.closest('[data-canvas]')) {
@@ -530,24 +1003,22 @@
       panel.hidden = !panel.hidden;
       render();
     });
+    return { render };
   }
 
   /* ---------- Canvas assignments (desktop app only; see canvas.js) ---------- */
 
   function setupCanvas(cv) {
-    const root = document.documentElement;
     const bar = document.querySelector('.canvas-bar');
     const check = bar.querySelector('.canvas-check');
     const hint = bar.querySelector('.canvas-hint');
     const panel = document.querySelector('.canvas-panel');
     const body = panel.querySelector('.cp-body');
-    const timeFmt = fmt({ hour: 'numeric', minute: '2-digit' });
 
     let cs = null; // latest state from canvas.js
-    let view = 'auto'; // which card to show: auto | host | token
+    let view = 'auto'; // which card to show: auto | host | address | token
     let notice = ''; // error shown in the card
 
-    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const dayKey = (d) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const course = (id) => cs?.courses.find((c) => c.id === id);
     const colorOf = (item) => course(item.courseId)?.color ?? '#9a9a9a';
@@ -576,7 +1047,7 @@
         if (!byDay.has(key)) byDay.set(key, []);
         byDay.get(key).push(item);
       }
-      for (const d of days) {
+      for (const d of pages.filter((p) => p.kind === 'day')) {
         const list = (byDay.get(dayKey(d.date)) ?? []).sort((a, b) => new Date(a.date) - new Date(b.date));
         const due = d.el.querySelector('.due');
         due.innerHTML = list.map((i) => `
@@ -587,8 +1058,10 @@
           </button>`).join('');
         due.hidden = list.length === 0;
         const row = pad.querySelector(`[data-due="${d.id}"]`);
-        row.innerHTML = list.slice(0, 3).map((i) => `<span class="wd-item${i.done ? ' is-done' : ''}"><i class="dot" style="--c:${esc(colorOf(i))}"></i>${esc(i.title)}</span>`).join('')
-          + (list.length > 3 ? `<span class="wd-more">+${list.length - 3} more</span>` : '');
+        if (row) {
+          row.innerHTML = list.slice(0, 3).map((i) => `<span class="wd-item${i.done ? ' is-done' : ''}"><i class="dot" style="--c:${esc(colorOf(i))}"></i>${esc(i.title)}</span>`).join('')
+            + (list.length > 3 ? `<span class="wd-more">+${list.length - 3} more</span>` : '');
+        }
       }
     }
 
@@ -781,8 +1254,10 @@
     }
     cv.onState(apply);
     cv.getState().then(apply);
-    return { openPanel, summary: () => (!cs ? '' : !cs.mode ? 'Not connected' : cs.status === 'signed-out' ? 'Session expired' : `${cs.userName || 'Connected'} · ${cs.host}`) };
+    return {
+      openPanel,
+      render: renderItems,
+      summary: () => (!cs ? '' : !cs.mode ? 'Not connected' : cs.status === 'signed-out' ? 'Session expired' : `${cs.userName || 'Connected'} · ${cs.host}`),
+    };
   }
-
-  settle();
 })();

@@ -12,11 +12,13 @@ There's no window frame or background: only the pad and its index tabs are drawn
 
 **Pages**, top to bottom (matching the tabs on the left):
 
-1. **Notes**: a blank scratch pad for anything
+1. **Notes**: as many pages as you like. The **+** on the Notes tab adds one; double-click a page's title (or use *Rename*) to name it; *Crumple* balls it up and throws it away.
 2. **Week**: this week at a glance, Monday to Sunday, with each day's notes and assignments
 3. **Mon … Sun**: a ruled page for each day. Today is marked.
 
 Click a tab, or the folded corner at the bottom right of a page, to flip. Everything you write saves automatically.
+
+**Writing**: every line is an item. Click the mark in the margin (or press Ctrl+Enter) to cross a line out; it sinks to the bottom of the page, and clicking again brings it back. Settings offers three looks: cross-out marks, checkboxes, or numbered lines.
 
 ## Download
 
@@ -46,8 +48,8 @@ Your password never passes through the notepad: it's typed into Canvas's own pag
 
 - **Move it**: drag the title area or the strip above it, or drag the tabs and week rows.
 - **Resize it**: drag the small grip just off the pad's bottom-right corner. It keeps its proportions.
-- **Pin** (top right): keeps it in front of other apps and locks it in place. Click again to unpin.
-- **Settings** (gear, top right): Light / Dark / System appearance, writing font (Handwritten, Serif, Sans, Mono), text size, and the Canvas card.
+- **Pin** (top right): locks it in place (no moving or resizing) and keeps it in front. Click again to unpin.
+- **Settings** (gear, top right): Light / Dark / System appearance, writing font (Handwritten, Serif, Sans, Mono), text size, list style, *Keep in front of other apps* (stays in front even when unpinned), and the Canvas card.
 - **–** minimizes to the taskbar. **×** tucks it into the tray (the hidden icons by the clock); click the tray icon to bring it back.
 - **Right-click the tray icon** for *Pin in place*, *Start with Windows*, and *Quit*.
 

@@ -26,7 +26,9 @@ let tray = null;
 let quitting = false;
 let resizeTimer = null;
 let moveStart = null; // window bounds when a drag began
-let pinned = false;
+let pinned = false; // locked in place (and in front)
+let onTop = false; // kept in front of other apps even when unpinned
+let topTimer = null;
 
 app.setAppUserModelId(APP_ID);
 
@@ -99,27 +101,35 @@ function saveWindowState() {
   writeState({ bounds: win.getBounds() });
 }
 
-// Moving from the tabs or week rows. Preferred: once the page sees a real drag begin, hand the
-// move to Windows itself (the same native loop a title bar uses), which keeps the window glued
-// to the cursor at the display's refresh rate. That needs two calls into user32.dll.
-const nativeDrag = (() => {
+// A few calls into user32.dll (Windows only), for two things Electron can't do on its own:
+// handing a drag that started on the page to Windows' native move loop, and checking the
+// window's real "topmost" flag. If koffi is missing or fails to load, both degrade gracefully.
+const native = (() => {
   if (process.platform !== 'win32') return null;
   try {
     const koffi = require('koffi');
     const user32 = koffi.load('user32.dll');
-    const ReleaseCapture = user32.func('bool __stdcall ReleaseCapture()');
-    const PostMessageW = user32.func('bool __stdcall PostMessageW(intptr_t hwnd, uint32 msg, uintptr_t wParam, intptr_t lParam)');
-    const WM_NCLBUTTONDOWN = 0x00a1;
-    const HTCAPTION = 2;
-    return (window) => {
-      const hwnd = Number(window.getNativeWindowHandle().readBigUInt64LE());
-      ReleaseCapture(); // the page grabbed the mouse on pointerdown; Windows needs it back
-      return Boolean(PostMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0));
+    return {
+      ReleaseCapture: user32.func('bool __stdcall ReleaseCapture()'),
+      PostMessageW: user32.func('bool __stdcall PostMessageW(intptr_t hwnd, uint32 msg, uintptr_t wParam, intptr_t lParam)'),
+      GetWindowLongPtrW: user32.func('intptr_t __stdcall GetWindowLongPtrW(intptr_t hwnd, int index)'),
+      SetWindowPos: user32.func('bool __stdcall SetWindowPos(intptr_t hwnd, intptr_t insertAfter, int x, int y, int cx, int cy, uint32 flags)'),
     };
   } catch {
-    return null; // koffi missing or failed to load: the page falls back to moveBy below
+    return null;
   }
 })();
+const hwndOf = (window) => Number(window.getNativeWindowHandle().readBigUInt64LE());
+
+// Moving from the tabs or week rows. Preferred: once the page sees a real drag begin, hand the
+// move to Windows itself (the same native loop a title bar uses), which keeps the window glued
+// to the cursor at the display's refresh rate.
+const nativeDrag = native && ((window) => {
+  const WM_NCLBUTTONDOWN = 0x00a1;
+  const HTCAPTION = 2;
+  native.ReleaseCapture(); // the page grabbed the mouse on pointerdown; Windows needs it back
+  return Boolean(native.PostMessageW(hwndOf(window), WM_NCLBUTTONDOWN, HTCAPTION, 0));
+});
 
 // Fallback: the page sends how far the pointer has travelled, once per display frame, and the
 // window follows. The window keeps its size, and stays at least partly on screen.
@@ -180,18 +190,65 @@ function stopResize() {
   saveWindowState();
 }
 
-// Pinned: kept in front of other apps and locked in place (no moving or resizing).
+/* ---------- In front of other apps ---------- */
+
+// Pinned = locked in place (no moving or resizing) and in front. "Keep in front" (onTop) is the
+// setting that keeps it in front even when it isn't pinned.
+const wantTop = () => pinned || onTop;
+
+// Electron's alwaysOnTop flag can quietly stop matching the window's real state on Windows: a
+// hide/show from the tray, another always-on-top app grabbing the top, or a focus change can
+// knock the window back down. So besides setting the flag, the actual Windows "topmost" style
+// is checked every second while it matters, and restored if it was lost.
+function assertTop() {
+  if (!win || win.isDestroyed()) return;
+  const should = wantTop();
+  if (win.isAlwaysOnTop() !== should) win.setAlwaysOnTop(should, 'floating');
+  if (!native || !win.isVisible()) return;
+  try {
+    const GWL_EXSTYLE = -20;
+    const WS_EX_TOPMOST = 0x8;
+    const hwnd = hwndOf(win);
+    const isTop = (Number(native.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)) & WS_EX_TOPMOST) !== 0;
+    if (isTop === should) return;
+    const HWND_TOPMOST = -1;
+    const HWND_NOTOPMOST = -2;
+    const SWP_NOSIZE = 0x1;
+    const SWP_NOMOVE = 0x2;
+    const SWP_NOACTIVATE = 0x10;
+    native.SetWindowPos(hwnd, should ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  } catch {
+    /* the Electron flag above is the fallback */
+  }
+}
+
+function applyTop() {
+  assertTop();
+  clearInterval(topTimer);
+  topTimer = wantTop() ? setInterval(assertTop, 1000) : null;
+}
+
+function sendState() {
+  if (win && !win.isDestroyed()) win.webContents.send('notepad:state', { pinned, onTop });
+}
+
 function setPinned(on) {
   pinned = Boolean(on);
   if (pinned) {
     stopMove();
     stopResize();
   }
-  if (win && !win.isDestroyed()) {
-    win.setAlwaysOnTop(pinned, 'floating');
-    win.webContents.send('notepad:pinned', pinned);
-  }
+  applyTop();
+  sendState();
   writeState({ pinned });
+  updateTrayMenu();
+}
+
+function setOnTop(on) {
+  onTop = Boolean(on);
+  applyTop();
+  sendState();
+  writeState({ keepOnTop: onTop });
   updateTrayMenu();
 }
 
@@ -212,6 +269,7 @@ function hideToTray() {
 function createWindow() {
   const state = readState();
   pinned = Boolean(state.pinned ?? state.alwaysOnTop); // alwaysOnTop: the setting's old name
+  onTop = Boolean(state.keepOnTop);
 
   win = new BrowserWindow({
     ...(savedBounds(state.bounds) ?? defaultBounds()),
@@ -225,7 +283,7 @@ function createWindow() {
     resizable: false, // resized with the grip by the pad's corner instead
     maximizable: false,
     fullscreenable: false,
-    alwaysOnTop: pinned,
+    alwaysOnTop: wantTop(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -239,9 +297,11 @@ function createWindow() {
 
   win.once('ready-to-show', () => {
     if (!START_HIDDEN) win.show();
+    applyTop();
     updateTrayMenu();
   });
-  win.webContents.on('did-finish-load', () => win.webContents.send('notepad:pinned', pinned));
+  win.webContents.on('did-finish-load', sendState);
+  for (const event of ['show', 'restore', 'focus']) win.on(event, assertTop);
 
   // Closing (Alt+F4, taskbar "Close window") hides to the tray instead of quitting.
   win.on('close', (event) => {
@@ -351,6 +411,11 @@ ipcMain.on('notepad:pin', (event, on) => {
   setPinned(on);
 });
 
+ipcMain.on('notepad:on-top', (event, on) => {
+  if (!fromOurWindow(event)) return;
+  setOnTop(on);
+});
+
 /* ---------- Tray (hidden icons) ---------- */
 
 // In development the app runs through electron.exe, which needs the app folder as an argument.
@@ -366,10 +431,16 @@ function updateTrayMenu() {
     { label: visible ? 'Hide notepad' : 'Show notepad', click: toggleWindow },
     { type: 'separator' },
     {
-      label: 'Pin in place (in front of other apps)',
+      label: 'Pin in place',
       type: 'checkbox',
       checked: pinned,
       click: (item) => setPinned(item.checked),
+    },
+    {
+      label: 'Keep in front of other apps',
+      type: 'checkbox',
+      checked: onTop,
+      click: (item) => setOnTop(item.checked),
     },
     {
       label: 'Start with Windows',

@@ -39,6 +39,9 @@
   /* Index tabs */
   --tab-ink: #2b241c;
   --tab-notes: #f4eddd;
+  --tab-sub-0: #efe6d3;
+  --tab-sub-1: #e8dcc6;
+  --tab-sub-2: #f2e4d1;
   --tab-week: #d6bc93;
   --tab-mon: #e8957a;
   --tab-tue: #ecc477;
@@ -99,8 +102,15 @@
   --corner-2: #3b3732;
   --corner-3: #4a453f;
   --corner-4: #2f2c28;
-  --tab-dim: saturate(0.8) brightness(0.68);
-  --tab-lit: brightness(0.84);
+  /* Tabs stay light in dark mode, so they stand out against the dark paper */
+  --tab-dim: saturate(0.9) brightness(0.97);
+  --tab-lit: brightness(1.08);
+}
+
+svg.defs {
+  position: absolute;
+  width: 0;
+  height: 0;
 }
 
 *,
@@ -132,7 +142,7 @@ body {
   user-select: none;
 }
 
-.is-desktop .write {
+.is-desktop :is(.text, .page-title.is-editing) {
   user-select: text;
 }
 
@@ -380,9 +390,72 @@ body {
     box-shadow 0.28s;
 }
 
-/* A little gap between Notes/Week and the days */
-.tab:nth-child(2) {
+/* A little gap between the Week tab and the days */
+.tab--week {
   margin-bottom: max(6px, 2.2cqw);
+}
+
+/* The Notes group: its chevron expands the group into a tab per notes page (or adds one) */
+.tab--group {
+  justify-content: space-between;
+  padding-right: max(4px, 0.8cqw);
+}
+
+.tab-chev {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.5em;
+  height: 1.5em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.07);
+  color: inherit;
+  font: inherit;
+  font-size: 0.95em;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.tab-chev:hover {
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.tab--sub {
+  flex: 0.8 1 0;
+  padding-left: max(7px, 1.3cqw);
+  font-size: clamp(10px, 2cqw, 14px);
+  font-weight: 500;
+}
+
+/* Only the part of a tab left of the pad is visible, so long names get an ellipsis there */
+.tab--sub .tab-label {
+  max-width: calc(var(--tab-out) - max(7px, 1.3cqw) - 1.2cqw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab--add {
+  flex: 0.6 1 0;
+  justify-content: center;
+  padding: 0;
+  border: 1.5px dashed rgba(128, 128, 128, 0.55);
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: var(--ink-soft);
+  font-size: clamp(12px, 2.4cqw, 17px);
+  filter: none;
+  opacity: 0.75;
+}
+
+.tab--add:hover {
+  opacity: 1;
+  background-color: rgba(128, 128, 128, 0.12);
 }
 
 .tab:hover {
@@ -511,6 +584,7 @@ body {
 }
 
 .page-title {
+  min-width: 0;
   margin: 0;
   font-size: clamp(24px, 7cqw, 50px);
   font-style: italic;
@@ -518,6 +592,17 @@ body {
   line-height: 1;
   letter-spacing: -0.015em;
   color: var(--ink);
+  outline: 0;
+}
+
+.page--notes .page-title {
+  cursor: text;
+}
+
+.page-title.is-editing {
+  border-radius: 0.1em;
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
 }
 
 .page-sub {
@@ -530,7 +615,56 @@ body {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--ink-soft);
+}
+
+/* Rename / Crumple on notes pages, and the crumple confirmation */
+.sub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  margin: 0;
+  padding: 0.15em 0.45em;
+  border: 0;
+  border-radius: 0.4em;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+
+.sub-btn:hover {
+  opacity: 1;
+  background: var(--btn-bg);
+  color: var(--ink);
+}
+
+.sub-btn svg {
+  width: 1.1em;
+  height: 1.1em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.sub-btn--danger {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.sub-btn--danger:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.sub-ask {
+  color: var(--ink);
 }
 
 .stamp {
@@ -546,25 +680,15 @@ body {
   opacity: 0.85;
 }
 
-/* ---------- Writing area (ruled lines + red margin) ---------- */
+/* ---------- Writing area: ruled lines, red margin, one editable line per item ---------- */
 
-.write {
+.lines {
   flex: 1;
   min-height: 0;
-  display: block;
-  width: calc(100% + 10cqw);
   margin: 0 -5cqw -4cqw;
-  padding: 0 5cqw 4cqw calc(var(--margin-x) + 2.4cqw);
-  border: 0;
-  border-radius: 0;
-  outline: 0;
-  resize: none;
-  font-family: var(--write-font);
-  font-size: calc(var(--line) * var(--write-ratio));
-  line-height: var(--line);
-  color: var(--ink);
-  caret-color: var(--accent);
-  background-color: transparent;
+  padding: 0 5cqw 4cqw 0;
+  overflow: auto;
+  cursor: text;
   /* Margin line stays put; the ruled lines are one tile per line and scroll with the text */
   background-image:
     linear-gradient(90deg, transparent calc(var(--margin-x) - 1.5px), var(--margin-line) calc(var(--margin-x) - 1.5px), var(--margin-line) var(--margin-x), transparent var(--margin-x)),
@@ -577,9 +701,116 @@ body {
   scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
 }
 
-.write::placeholder {
+.line {
+  display: flex;
+  align-items: flex-start;
+  min-height: var(--line);
+}
+
+/* The mark in the margin: click it to cross the line out */
+.mark {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--margin-x);
+  height: var(--line);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--pencil);
+  font-family: var(--serif);
+  font-size: calc(var(--line) * 0.46);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: color 0.15s, opacity 0.15s;
+}
+
+.mark::before {
+  content: "";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--line) * 0.44);
+  height: calc(var(--line) * 0.44);
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.mark:hover,
+.line[data-done="true"] .mark {
+  color: var(--accent);
   opacity: 1;
+}
+
+.line[data-done="true"] .mark::before {
+  background: currentColor;
+}
+
+/* Checkboxes */
+:root[data-marks="checkbox"] .mark::before {
+  border-radius: 0.2em;
+}
+
+:root[data-marks="checkbox"] .line[data-done="true"] .mark::before {
+  content: "✓";
+  color: #fff;
+  font-size: calc(var(--line) * 0.32);
+  font-weight: 700;
+}
+
+/* Numbered lines */
+:root[data-marks="numbered"] .lines {
+  counter-reset: line;
+}
+
+:root[data-marks="numbered"] .line {
+  counter-increment: line;
+}
+
+:root[data-marks="numbered"] .mark::before {
+  content: counter(line) ".";
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+:root[data-marks="numbered"] .line[data-done="true"] .mark::before {
+  background: none;
+  text-decoration: line-through;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0 0 2.4cqw;
+  outline: 0;
+  font-family: var(--write-font);
+  font-size: calc(var(--line) * var(--write-ratio));
+  line-height: var(--line);
+  color: var(--ink);
+  caret-color: var(--accent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  transition: opacity 0.2s;
+}
+
+.line:only-child .text:empty::before {
+  content: attr(data-placeholder);
+  color: var(--pencil);
+  pointer-events: none;
+}
+
+.line[data-done="true"] .text {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-soft);
+  opacity: 0.5;
 }
 
 /* ---------- Week overview ---------- */
@@ -1013,6 +1244,11 @@ body {
   min-width: 3.4em;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+.cp-hint {
+  margin-top: 1em;
+  font-size: 0.9em;
 }
 
 .cp-school:hover,
