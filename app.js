@@ -230,8 +230,9 @@
     canvasUI?.render();
   }
 
-  // Index tabs: a Notes group (one tab, or expanded into a tab per section plus "+"), then
-  // Week and the days.
+  // Index tabs: the Notes group (one tab, or expanded into a tab per notes page), a "+" tab to
+  // add a page, then Week and the days. Only the left part of a tab shows (the rest is under
+  // the pad), so the group's chevron sits on the left, before its label.
   function renderTabs() {
     tablist.innerHTML = '';
     const multi = sections.length > 1;
@@ -242,16 +243,12 @@
     groupTab.setAttribute('role', 'tab');
     groupTab.tabIndex = -1;
     groupTab.style.setProperty('--tab-color', 'var(--tab-notes)');
-    const chevTitle = multi ? (expanded ? 'Collapse the notes pages' : 'Show the notes pages') : 'Add a notes page';
-    groupTab.innerHTML = `<span class="tab-label">Notes</span><button type="button" class="tab-chev" title="${chevTitle}" aria-label="${chevTitle}">${multi ? (expanded ? '▾' : '▸') : '+'}</button>`;
+    const chevTitle = expanded ? 'Collapse the notes pages' : 'Show the notes pages';
+    groupTab.innerHTML = `${multi ? `<button type="button" class="tab-chev" title="${chevTitle}" aria-label="${chevTitle}">${expanded ? '▾' : '▸'}</button>` : ''}<span class="tab-label">Notes</span>`;
     groupTab.addEventListener('click', (e) => {
       if (e.target.closest('.tab-chev')) {
-        if (multi) {
-          setPrefs({ notesExpanded: !prefs.notesExpanded });
-          renderTabs();
-        } else {
-          addSection();
-        }
+        setPrefs({ notesExpanded: !prefs.notesExpanded });
+        renderTabs();
         return;
       }
       const cur = pages[current];
@@ -282,13 +279,13 @@
         p.tab = tab;
         continue;
       }
-      if (p.kind === 'week' && expanded) {
+      if (p.kind === 'week') {
         const add = document.createElement('button');
         add.type = 'button';
-        add.className = 'tab tab--sub tab--add';
+        add.className = 'tab tab--add';
         add.title = 'Add a notes page';
         add.setAttribute('aria-label', 'Add a notes page');
-        add.textContent = '+';
+        add.innerHTML = '<span class="tab-label">+</span>';
         add.addEventListener('click', addSection);
         tablist.append(add);
       }
@@ -341,7 +338,7 @@
 
   /* ---------- Flipping ---------- */
 
-  // Put every sheet in its resting place for the current page.
+  // Put every sheet in its resting place for the current page, ready to write on.
   function settle() {
     for (const p of pages) {
       p.el.classList.toggle('is-flipped', p.index < current);
@@ -349,6 +346,7 @@
     }
     updateTabState(current);
     store.set('current', pages[current].id);
+    focusEditor(pages[current]);
   }
 
   const DURATION = 640;
@@ -451,9 +449,22 @@
     const line = document.createElement('div');
     line.className = 'line';
     line.dataset.done = String(Boolean(done));
-    line.innerHTML = `<button type="button" class="mark" tabindex="-1" aria-label="${done ? 'Un-cross this line' : 'Cross this line out'}"></button><div class="text" contenteditable="plaintext-only" spellcheck="true"${p.first ? ' data-placeholder="Jot anything down…"' : ''}></div>`;
+    line.innerHTML = `<span class="gutter"><button type="button" class="mark" tabindex="-1" aria-label="${done ? 'Un-cross this line' : 'Cross this line out'}"></button></span><div class="text" contenteditable="plaintext-only" spellcheck="true"${p.first ? ' data-placeholder="Jot anything down…"' : ''}></div>`;
     line.querySelector('.text').textContent = text;
     return line;
+  }
+
+  // Puts the caret where writing would naturally continue: the end of the last line still to
+  // do, or a fresh line if that one already has text (or if only crossed-out lines are left).
+  function focusEditor(p, force = false) {
+    if (!p?.lines) return;
+    const active = [...p.lines.children].filter((l) => l.dataset.done !== 'true');
+    let target = active[active.length - 1] ?? null;
+    if (!target || (force && textOf(target).textContent)) {
+      target = makeLine('', false, p);
+      p.lines.insertBefore(target, firstDone(p.lines));
+    }
+    setCaret(textOf(target), textOf(target).textContent.length);
   }
 
   function mountLines(p, items) {
@@ -470,8 +481,11 @@
     if (!p.lines) return;
     clearTimeout(saveTimers.get(p));
     const items = itemsOf(p);
-    while (items.length && !items[items.length - 1].t && !items[items.length - 1].d) items.pop();
-    storeItems(p.id, items);
+    // Empty lines left at the end of the to-do part (and the end of the page) aren't notes
+    const done = items.filter((i) => i.d);
+    let active = items.filter((i) => !i.d);
+    while (active.length && !active[active.length - 1].t) active.pop();
+    storeItems(p.id, [...active, ...done]);
     p.dirty = false;
     updatePreview(p);
   }
@@ -551,10 +565,17 @@
 
   pad.addEventListener('mousedown', (e) => {
     const lines = e.target.closest('.lines');
-    if (!lines || e.target.closest('.line')) return;
-    e.preventDefault(); // clicked the empty paper below the last line: write there
-    const last = lines.lastElementChild;
-    if (last) setCaret(textOf(last), textOf(last).textContent.length);
+    if (!lines || e.target.closest('.mark')) return;
+    const gutter = e.target.closest('.gutter');
+    if (gutter) {
+      // The margin beside a line: put the caret at the start of that line
+      e.preventDefault();
+      setCaret(textOf(gutter.closest('.line')), 0);
+      return;
+    }
+    if (e.target.closest('.line')) return;
+    e.preventDefault(); // clicked the empty paper below the last line: start writing there
+    focusEditor(pageOf(lines), true);
   });
 
   pad.addEventListener('input', (e) => {
@@ -712,6 +733,12 @@
     if (p.subHTML) p.el.querySelector('.page-sub').innerHTML = p.subHTML;
   }
 
+  // The crumple: the sheet lifts, scrunches into a jagged ball (its outline is clipped to a
+  // crumpled shape while creases fade in), then drops off the bottom of the pad.
+  const RECT = [[0, 0], [25, 0], [50, 0], [75, 0], [100, 0], [100, 25], [100, 50], [100, 75], [100, 100], [75, 100], [50, 100], [25, 100], [0, 100], [0, 75], [0, 50], [0, 25]];
+  const BALL = [[8, 6], [28, 2], [52, 9], [74, 1], [94, 10], [100, 30], [92, 52], [99, 74], [90, 96], [72, 100], [50, 91], [27, 99], [6, 94], [0, 72], [9, 50], [2, 27]];
+  const poly = (points) => `polygon(${points.map(([x, y]) => `${x}% ${y}%`).join(', ')})`;
+
   // Balls the page up and drops it, then removes the section (or wipes it clean if it's the last one)
   async function crumple(p) {
     if (p.crumpling) return;
@@ -722,25 +749,20 @@
     if (shouldAnimate()) {
       const el = p.el;
       el.style.zIndex = liftedZ(p.index);
-      el.style.filter = 'url(#crumple)';
-      const map = document.querySelector('#crumple feDisplacementMap');
-      const DUR = 1000;
-      const t0 = performance.now();
-      const wobble = (t) => {
-        const k = Math.min(1, (t - t0) / DUR);
-        map?.setAttribute('scale', String(Math.round(k * 80)));
-        if (k < 1) requestAnimationFrame(wobble);
-      };
-      requestAnimationFrame(wobble);
-      p.front.animate([{ borderRadius: '0.5cqw' }, { borderRadius: '0.5cqw', offset: 0.3 }, { borderRadius: '45%' }], { duration: DUR, fill: 'forwards' });
+      el.style.transformOrigin = '50% 55%';
+      const creases = document.createElement('div');
+      creases.className = 'creases';
+      p.front.append(creases);
+      const DUR = 1150;
+      creases.animate([{ opacity: 0 }, { opacity: 0, offset: 0.22 }, { opacity: 1, offset: 0.55 }, { opacity: 1 }], { duration: DUR, fill: 'forwards' });
       const fall = el.animate([
-        { transform: 'none', opacity: 1 },
-        { transform: 'rotate(-3deg) scale(0.93)', opacity: 1, offset: 0.3 },
-        { transform: 'rotate(9deg) scale(0.55) translateY(8%)', opacity: 1, offset: 0.65 },
-        { transform: 'rotate(26deg) scale(0.2) translateY(150%)', opacity: 0 },
-      ], { duration: DUR, easing: 'cubic-bezier(.45, 0, .75, .35)', fill: 'forwards' });
+        { offset: 0, transform: 'none', clipPath: poly(RECT), opacity: 1 },
+        { offset: 0.2, transform: 'translateY(-1.5%) scale(1.02) rotate(-1deg)', clipPath: poly(RECT), opacity: 1 },
+        { offset: 0.55, transform: 'scale(0.42, 0.5) rotate(7deg)', clipPath: poly(BALL), opacity: 1 },
+        { offset: 0.7, transform: 'scale(0.36, 0.42) rotate(-5deg) translateY(6%)', clipPath: poly(BALL), opacity: 1 },
+        { offset: 1, transform: 'scale(0.3, 0.34) rotate(35deg) translateY(190%)', clipPath: poly(BALL), opacity: 0 },
+      ], { duration: DUR, easing: 'cubic-bezier(.4, 0, .6, 1)', fill: 'forwards' });
       await fall.finished.catch(() => {});
-      map?.setAttribute('scale', '0');
     }
 
     const i = sections.findIndex((s) => s.id === p.id);
@@ -854,11 +876,14 @@
     grip.addEventListener('pointerup', endResize);
     grip.addEventListener('lostpointercapture', endResize);
 
-    // Drag the tabs or the week rows to move the notepad. (The title area is dragged natively
-    // by Windows, via CSS.) A press only becomes a move after the pointer travels a few pixels,
-    // so clicks on the tabs and the week's days still work as clicks. Once it is a move, the
-    // window is handed to Windows, which drags it itself until the button is released; if that
-    // isn't possible, the page drives the move from its own pointer events, once per frame.
+    // Drag the title area, the strip above it, the tabs or the week rows to move the notepad.
+    // A press only becomes a move after the pointer travels a few pixels, so clicks (and
+    // double-clicks) on everything in those areas still work. Once it is a move, the window is
+    // handed to Windows, which drags it itself until the button is released; if that isn't
+    // possible, the page drives the move from its own pointer events, once per frame.
+    // (No CSS drag regions: on Windows they swallow the clicks of any button inside them.)
+    const DRAG_FROM = '.drag-strip, .page-head, .tabs, .week';
+    const NOT_FROM = '.sub-btn, .tab-chev, .tab--add, .mark, .text, input, .is-editing';
     const MOVE_THRESHOLD = 4;
     let press = null;
     let justMoved = false;
@@ -887,7 +912,7 @@
     bridge.onMoved(finish);
     document.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || desktop.pinned) return;
-      if (!e.target.closest('.tabs, .week')) return;
+      if (!e.target.closest(DRAG_FROM) || e.target.closest(NOT_FROM)) return;
       press = { x: e.screenX, y: e.screenY, dx: 0, dy: 0, moving: false, target: e.target, id: e.pointerId };
     });
     document.addEventListener('pointermove', (e) => {

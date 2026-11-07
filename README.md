@@ -12,7 +12,7 @@ There's no window frame or background: only the pad and its index tabs are drawn
 
 **Pages**, top to bottom (matching the tabs on the left):
 
-1. **Notes**: as many pages as you like. The **+** on the Notes tab adds one; double-click a page's title (or use *Rename*) to name it; *Crumple* balls it up and throws it away.
+1. **Notes**: as many pages as you like. The **+** tab under Notes adds one; double-click a page's title (or use *Rename*) to name it; *Crumple* balls it up and throws it away. With several pages, the ▾ on the Notes tab collapses them into one tab.
 2. **Week**: this week at a glance, Monday to Sunday, with each day's notes and assignments
 3. **Mon … Sun**: a ruled page for each day. Today is marked.
 
