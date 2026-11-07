@@ -42,6 +42,7 @@
   --tab-sub-0: #efe6d3;
   --tab-sub-1: #e8dcc6;
   --tab-sub-2: #f2e4d1;
+  --tab-add: #dcd3c3;
   --tab-week: #d6bc93;
   --tab-mon: #e8957a;
   --tab-tue: #ecc477;
@@ -191,16 +192,18 @@ body {
 
 /* ---------- Desktop: grab the notepad anywhere but the writing lines to move it ---------- */
 
-/* The title area and the strip above it are moved by Windows itself (smoothest). A drag region
-   swallows clicks, so the buttons inside the header are carved out, and the region is switched
-   off while a settings or Canvas card is open (the card overlaps the header at small sizes).
+/* The page title and the strip above it are moved by Windows itself (smoothest). Only the
+   visible page's: every sheet has a title at the same spot, and Windows builds the drag area by
+   adding each sheet's rectangle in turn, so a button carved out of one sheet's header is put
+   back by the next sheet's. Nothing clickable sits inside these two rectangles (Rename and
+   Crumple live on the line beside the title), and the regions are switched off while a
+   settings or Canvas card is open, since the card overlaps the header at small sizes.
    The tabs and week rows have to stay clickable, so app.js moves the window from their pointer
    events instead, handing the drag to Windows once it starts. */
-.is-desktop:not(.is-pinned):not(.has-card) :is(.page-head, .drag-strip) {
+.is-desktop:not(.is-pinned):not(.has-card) .page:not([inert]) :is(.page-title, .drag-strip) {
   -webkit-app-region: drag;
 }
 
-.page-head :is(button, .sub-btn),
 .is-desktop :is(.tabs, .win-controls, .resize-grip, .canvas-bar, .card) {
   -webkit-app-region: no-drag;
 }
@@ -447,31 +450,19 @@ body {
   white-space: nowrap;
 }
 
-/* "+": adds a notes page. Always there, just below the Notes tab(s). */
+/* "+": adds a notes page. A short tab of its own, just below the Notes tab(s). */
 .tab--add {
+  --tab-color: var(--tab-add);
   flex: 0.55 1 0;
   padding-left: 0;
-  border: 1.5px dashed rgba(128, 128, 128, 0.6);
-  background-color: transparent;
-  background-image: none;
-  box-shadow: none;
-  color: var(--ink-soft);
-  font-size: clamp(13px, 2.6cqw, 18px);
-  font-weight: 500;
-  filter: none;
-  opacity: 0.8;
+  font-size: clamp(14px, 2.8cqw, 19px);
+  font-weight: 600;
 }
 
 /* Keep the + in the visible part of the tab (the right part is under the pad) */
 .tab--add .tab-label {
   width: var(--tab-out);
   text-align: center;
-}
-
-.tab--add:hover {
-  opacity: 1;
-  background-color: rgba(128, 128, 128, 0.14);
-  filter: none;
 }
 
 .tab:hover {

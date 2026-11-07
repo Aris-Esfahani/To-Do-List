@@ -46,7 +46,7 @@ Your password never passes through the notepad: it's typed into Canvas's own pag
 
 ## Using it
 
-- **Move it**: drag the title area or the strip above it, or drag the tabs and week rows.
+- **Move it**: drag the page's title or the strip above it, or drag the tabs and week rows.
 - **Resize it**: drag the small grip just off the pad's bottom-right corner. It keeps its proportions.
 - **Pin** (top right): locks it in place (no moving or resizing) and keeps it in front. Click again to unpin.
 - **Settings** (gear, top right): Light / Dark / System appearance, writing font (Handwritten, Serif, Sans, Mono), text size, list style, *Keep in front of other apps* (stays in front even when unpinned), and the Canvas card.
